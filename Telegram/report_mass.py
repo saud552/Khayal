@@ -229,6 +229,7 @@ async def join_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         success_count = 0
         total_accounts = len(accounts)
         channel_id = None
+        failed_reasons = []
         
         for idx, account in enumerate(accounts):
             session_str = account["session"]

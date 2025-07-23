@@ -150,8 +150,9 @@ async def process_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             # محاولة الحصول على الكيان
             entity = await client.get_entity(channel_link)
-            context.user_data["channel"] = entity.username or entity.id
-            context.user_data["channel_title"] = entity.title
+            # حفظ الكيان الكامل للاستخدام لاحقاً
+            context.user_data["channel"] = entity
+            context.user_data["channel_title"] = getattr(entity, 'title', getattr(entity, 'username', str(entity.id)))
 
             # عرض خيارات جلب المنشورات للقنوات العامة
             keyboard = [

@@ -75,32 +75,15 @@ def parse_message_link(link: str) -> dict | None:
             }
         
         # النمط مع المعرف الخاص: https://t.me/c/1234567890/123
-        private_pattern = r"https?://t\.me/c/(-?\d+)/(\d+)"
+        private_pattern = r"https?://t\.me/c/(\d+)/(\d+)"
         match = re.search(private_pattern, link)
         if match:
-            # تحويل معرف القناة الخاص إلى تنسيق صحيح
-            channel_id = int(match.group(1))
-            # إذا كان المعرف لا يبدأ بـ -100، أضفه
-            if channel_id > 0:
-                channel_id = -1000000000000 - channel_id
             return {
-                "channel": channel_id,
+                "channel": int(match.group(1)),
                 "message_id": int(match.group(2))
             }
         
-        # دعم الروابط بدون بروتوكول للقنوات الخاصة
-        no_protocol_private_pattern = r"t\.me/c/(-?\d+)/(\d+)"
-        match = re.search(no_protocol_private_pattern, link)
-        if match:
-            channel_id = int(match.group(1))
-            if channel_id > 0:
-                channel_id = -1000000000000 - channel_id
-            return {
-                "channel": channel_id,
-                "message_id": int(match.group(2))
-            }
-        
-        # دعم الروابط بدون بروتوكول للقنوات العامة
+        # دعم الروابط بدون بروتوكول
         no_protocol_pattern = r"t\.me/([a-zA-Z0-9_]+)/(\d+)"
         match = re.search(no_protocol_pattern, link)
         if match:
@@ -109,8 +92,6 @@ def parse_message_link(link: str) -> dict | None:
                 "message_id": int(match.group(2))
             }
             
-        # إذا لم يتم التعرف على أي نمط
-        logger.warning(f"لم يتم التعرف على تنسيق الرابط: {link}")
         return None
     except Exception as e:
         logger.error(f"خطأ في تحليل رابط الرسالة: {e}")

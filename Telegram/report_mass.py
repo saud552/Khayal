@@ -309,9 +309,16 @@ async def select_posts_option(update: Update, context: ContextTypes.DEFAULT_TYPE
         context.user_data['fetch_type'] = 'custom'
         await query.edit_message_text(
             "أرسل روابط المنشورات المراد الإبلاغ عنها (روابط متعددة مفصولة بمسافة أو أسطر جديدة):\n\n"
-            "📌 مثال:\n"
+            "📌 أمثلة للقنوات العامة:\n"
             "https://t.me/channel/123\n"
-            "https://t.me/channel/456"
+            "https://t.me/channel/456\n\n"
+            "📌 أمثلة للقنوات الخاصة:\n"
+            "https://t.me/c/1234567890/123\n"
+            "https://t.me/c/1234567890/456\n\n"
+            "💡 للحصول على رابط منشور من قناة خاصة:\n"
+            "1. اذهب إلى المنشور في القناة\n"
+            "2. اضغط على 'مشاركة' أو 'Share'\n"
+            "3. اختر 'نسخ الرابط' أو 'Copy Link'"
         )
         return ENTER_POSTS_NUMBER
     elif choice == "posts_date":
@@ -402,7 +409,14 @@ async def process_posts_number(update: Update, context: ContextTypes.DEFAULT_TYP
             })
     
     if not targets:
-        await update.message.reply_text("❌ لم يتم العثور على روابط صالحة أو أنها لا تخص هذه القناة. أعد المحاولة.")
+        await update.message.reply_text(
+            "❌ لم يتم العثور على روابط منشورات صالحة.\n\n"
+            "تأكد من أن الروابط:\n"
+            "• تشير إلى منشورات وليس القناة نفسها\n"
+            "• بالتنسيق الصحيح (مثل: https://t.me/channel/123)\n"
+            "• للقنوات الخاصة: https://t.me/c/1234567890/123\n\n"
+            "💡 رابط الانضمام للقناة يختلف عن رابط المنشور!"
+        )
         return ENTER_POSTS_NUMBER
     
     context.user_data["targets"] = targets

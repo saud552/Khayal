@@ -11,7 +11,7 @@ from telethon.errors import (
     UsernameNotOccupiedError,
     FloodWaitError,
     InviteHashExpiredError,
-    InviteInviteHashInvalidError
+    InviteHashInvalidError
 )
 from telethon.tl.types import ChatInviteAlready
 from telethon.tl.functions.messages import CheckChatInviteRequest, ImportChatInviteRequest

@@ -226,7 +226,8 @@ async def join_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     # الطريقة 1: من نتيجة ImportChatInviteRequest
                     if hasattr(result, 'chats') and result.chats:
                         chat = result.chats[0]
-                        context.user_data["channel"] = chat.id
+                        # حفظ الكائن الكامل للقناة
+                        context.user_data["channel"] = chat
                         context.user_data["channel_title"] = chat.title
                         channel_title = chat.title
                         channel_id = chat.id
@@ -236,7 +237,8 @@ async def join_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             invite_info = await client(CheckChatInviteRequest(invite_hash))
                             if isinstance(invite_info, ChatInviteAlready):
                                 chat = invite_info.chat
-                                context.user_data["channel"] = chat.id
+                                # حفظ الكائن الكامل للقناة
+                                context.user_data["channel"] = chat
                                 context.user_data["channel_title"] = chat.title
                                 channel_title = chat.title
                                 channel_id = chat.id
@@ -432,7 +434,7 @@ async def fetch_posts(update: Update, context: ContextTypes.DEFAULT_TYPE, from_c
     else: # Fallback, should ideally not happen if called correctly
         msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=loading_text)
 
-    channel_entity_id = context.user_data["channel"]
+    channel_entity = context.user_data["channel"]
     session_str = context.user_data["accounts"][0]["session"]
     
     client = TelegramClient(StringSession(session_str), API_ID, API_HASH)
@@ -443,15 +445,15 @@ async def fetch_posts(update: Update, context: ContextTypes.DEFAULT_TYPE, from_c
         
         if fetch_type == 'recent':
             limit = context.user_data['fetch_limit']
-            async for message in client.iter_messages(channel_entity_id, limit=limit):
-                posts.append({"channel": channel_entity_id, "message_id": message.id})
+            async for message in client.iter_messages(channel_entity, limit=limit):
+                posts.append({"channel": channel_entity, "message_id": message.id})
                 
         elif fetch_type == 'media':
             limit = context.user_data['fetch_limit']
             media_posts_count = 0
-            async for message in client.iter_messages(channel_entity_id, limit=None):
+            async for message in client.iter_messages(channel_entity, limit=None):
                 if message.media:
-                    posts.append({"channel": channel_entity_id, "message_id": message.id})
+                    posts.append({"channel": channel_entity, "message_id": message.id})
                     media_posts_count += 1
                 if media_posts_count >= limit:
                     break
@@ -459,9 +461,9 @@ async def fetch_posts(update: Update, context: ContextTypes.DEFAULT_TYPE, from_c
         elif fetch_type == 'date':
             days = context.user_data['days']
             offset_date = datetime.now() - timedelta(days=days)
-            async for message in client.iter_messages(channel_entity_id, offset_date=offset_date):
+            async for message in client.iter_messages(channel_entity, offset_date=offset_date):
                 if message.date > offset_date:
-                    posts.append({"channel": channel_entity_id, "message_id": message.id})
+                    posts.append({"channel": channel_entity, "message_id": message.id})
                 else:
                     break
 

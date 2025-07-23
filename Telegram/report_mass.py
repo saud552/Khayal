@@ -233,13 +233,23 @@ async def join_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         for idx, account in enumerate(accounts):
             session_str = account["session"]
+            username = account.get("username", f"الحساب {idx+1}")
+            logger.info(f"🔄 محاولة انضمام الحساب {idx+1}/{total_accounts}: {username}")
+            
             client = TelegramClient(StringSession(session_str), API_ID, API_HASH)
             
             try:
                 await client.connect()
+                logger.info(f"✅ تم الاتصال بالحساب {idx+1} بنجاح")
+                
+                # التحقق من تفويض الحساب
+                if not await client.is_user_authorized():
+                    raise Exception(f"الحساب {idx+1} غير مفوض أو انتهت صلاحية الجلسة")
                 
                 # الانضمام باستخدام رابط الدعوة
+                logger.info(f"🔗 محاولة الانضمام للحساب {idx+1} باستخدام رابط الدعوة")
                 result = await client(ImportChatInviteRequest(invite_hash))
+                logger.info(f"✅ نجح الانضمام للحساب {idx+1}")
                 
                 # للحساب الأول: استخراج معلومات القناة بطريقة محسنة
                 if idx == 0:
@@ -284,18 +294,24 @@ async def join_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await asyncio.sleep(5)
                 
             except FloodWaitError as e:
-                logger.warning(f"⏳ الحساب {idx+1}: يجب الانتظار {e.seconds} ثانية - تخطي")
+                logger.warning(f"⏳ الحساب {idx+1}: يجب الانتظار {e.seconds} ثانية")
+                failed_reasons.append(f"الحساب {idx+1}: FloodWait لمدة {e.seconds} ثانية")
                 await asyncio.sleep(e.seconds)
                 try:
+                    logger.info(f"🔄 إعادة محاولة الانضمام للحساب {idx+1} بعد FloodWait")
                     await client(ImportChatInviteRequest(invite_hash))
                     success_count += 1
-                except Exception:
-                    pass
+                    logger.info(f"✅ نجح الانضمام للحساب {idx+1} بعد FloodWait")
+                except Exception as retry_e:
+                    logger.error(f"❌ فشل الانضمام للحساب {idx+1} حتى بعد FloodWait: {retry_e}")
+                    failed_reasons.append(f"الحساب {idx+1}: {str(retry_e)}")
             except Exception as e:
                 logger.error(f"❌ الحساب {idx+1}: فشل الانضمام - {e}")
+                failed_reasons.append(f"الحساب {idx+1}: {str(e)}")
             finally:
                 if client.is_connected():
                     await client.disconnect()
+                    logger.info(f"🔌 تم قطع الاتصال مع الحساب {idx+1}")
         
         # عرض نتائج الانضمام
         if success_count > 0:
@@ -325,7 +341,16 @@ async def join_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return SELECT_POSTS_OPTION
         else:
-            await query.edit_message_text("❌ فشلت جميع الحسابات في الانضمام إلى القناة. يرجى التحقق من الرابط والمحاولة مرة أخرى.")
+            # عرض تفاصيل الأخطاء
+            error_details = "\n".join(failed_reasons[:5])  # أول 5 أخطاء فقط
+            await query.edit_message_text(
+                f"❌ فشلت جميع الحسابات في الانضمام إلى القناة.\n\n"
+                f"تفاصيل الأخطاء:\n{error_details}\n\n"
+                f"يرجى التحقق من:\n"
+                f"• صحة رابط الدعوة\n"
+                f"• أن الحسابات لم تُحظر من القناة\n"
+                f"• أن الحسابات تعمل بشكل صحيح"
+            )
             return ConversationHandler.END
     else:
         await query.edit_message_text("تم الإلغاء.")

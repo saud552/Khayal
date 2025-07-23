@@ -139,7 +139,11 @@ async def process_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return ENTER_CHANNEL
         except Exception as e:
             logger.error(f"خطأ في فحص الدعوة: {e}")
-            await update.message.reply_text("❌ حدث خطأ أثناء فحص رابط الدعوة.")
+            await update.message.reply_text(
+                f"❌ حدث خطأ أثناء فحص رابط الدعوة.\n"
+                f"تفاصيل الخطأ: {str(e)}\n\n"
+                f"يرجى التأكد من صحة الرابط ومحاولة مرة أخرى."
+            )
             return ENTER_CHANNEL
         finally:
             if client.is_connected():

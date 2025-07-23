@@ -119,15 +119,30 @@ async def process_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await client.connect()
             # التحقق من الدعوة
             invite = await client(CheckChatInviteRequest(invite_hash))
-            context.user_data["channel_title"] = invite.title
+            
+            # التحقق من نوع الاستجابة
+            if isinstance(invite, ChatInviteAlready):
+                # الحساب منضم بالفعل للقناة
+                context.user_data["channel_title"] = invite.chat.title
+                context.user_data["already_joined"] = True
+            else:
+                # دعوة عادية
+                context.user_data["channel_title"] = invite.title
+                context.user_data["already_joined"] = False
             
             # عرض خيار الانضمام
             keyboard = [
                 [InlineKeyboardButton("✅ نعم، انضم ثم تابع", callback_data="join_channel")],
                 [InlineKeyboardButton("❌ إلغاء", callback_data="cancel")]
             ]
+            
+            if context.user_data.get("already_joined", False):
+                message_text = f"🔒 تم التعرف على رابط دعوة خاص للقناة '{context.user_data['channel_title']}'.\n\n✅ الحساب الأول منضم بالفعل. هل تريد المتابعة والانضمام بباقي الحسابات؟"
+            else:
+                message_text = f"🔒 تم التعرف على رابط دعوة خاص. هل تريد الانضمام إلى '{context.user_data['channel_title']}' باستخدام الحسابات؟"
+            
             await update.message.reply_text(
-                f"🔒 تم التعرف على رابط دعوة خاص. هل تريد الانضمام إلى '{invite.title}' باستخدام الحسابات؟",
+                message_text,
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
             return JOIN_CHANNEL
@@ -229,34 +244,31 @@ async def join_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if idx == 0:
                     channel_entity = None
                     
-                    # الطريقة 1: من نتيجة ImportChatInviteRequest
-                    if hasattr(result, 'chats') and result.chats:
-                        chat = result.chats[0]
-                        channel_title = chat.title
-                        channel_id = chat.id
-                        
-                        # إعادة جلب الكائن بطريقة صحيحة للاستعلام
-                        try:
-                            channel_entity = await client.get_entity(chat.id)
-                        except Exception as e:
-                            logger.warning(f"فشل في إعادة جلب كائن القناة: {e}")
-                            channel_entity = chat
-                    
-                    # الطريقة 2: إذا لم تنجح الأولى
-                    if not channel_entity:
+                    # التحقق إذا كان الحساب منضماً بالفعل (من الفحص المسبق)
+                    if context.user_data.get("already_joined", False):
+                        # استخدام CheckChatInviteRequest للحصول على معلومات القناة
                         try:
                             invite_info = await client(CheckChatInviteRequest(invite_hash))
                             if isinstance(invite_info, ChatInviteAlready):
                                 chat = invite_info.chat
                                 channel_title = chat.title
                                 channel_id = chat.id
-                                try:
-                                    channel_entity = await client.get_entity(chat.id)
-                                except Exception as e:
-                                    logger.warning(f"فشل في إعادة جلب كائن القناة: {e}")
-                                    channel_entity = chat
+                                channel_entity = await client.get_entity(chat.id)
                         except Exception as e:
-                            logger.error(f"لا يمكن الحصول على معلومات القناة: {e}")
+                            logger.error(f"فشل في الحصول على معلومات القناة للحساب المنضم: {e}")
+                    else:
+                        # الطريقة العادية: من نتيجة ImportChatInviteRequest
+                        if hasattr(result, 'chats') and result.chats:
+                            chat = result.chats[0]
+                            channel_title = chat.title
+                            channel_id = chat.id
+                            
+                            # إعادة جلب الكائن بطريقة صحيحة للاستعلام
+                            try:
+                                channel_entity = await client.get_entity(chat.id)
+                            except Exception as e:
+                                logger.warning(f"فشل في إعادة جلب كائن القناة: {e}")
+                                channel_entity = chat
                     
                     # حفظ الكائن المحدث
                     if channel_entity:

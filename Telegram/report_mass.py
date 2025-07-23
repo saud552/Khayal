@@ -159,7 +159,7 @@ async def process_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton("آخر 50 منشور", callback_data="posts_limit_50")],
                 [InlineKeyboardButton("آخر 100 منشور", callback_data="posts_limit_100")],
                 [InlineKeyboardButton("آخر 200 منشور", callback_data="posts_limit_200")],
-                [InlineKeyboardButton("منشورات محددة (أرقام المنشورات)", callback_data="posts_custom")],
+                [InlineKeyboardButton("منشورات محددة (إرسال روابط)", callback_data="posts_custom")],
                 [InlineKeyboardButton("منشورات من فترة محددة", callback_data="posts_date")],
                 [InlineKeyboardButton("منشورات الوسائط فقط", callback_data="posts_media")],
                 [InlineKeyboardButton("🔙 رجوع", callback_data="back_to_channel")],
@@ -281,7 +281,7 @@ async def join_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton("آخر 50 منشور", callback_data="posts_limit_50")],
                 [InlineKeyboardButton("آخر 100 منشور", callback_data="posts_limit_100")],
                 [InlineKeyboardButton("آخر 200 منشور", callback_data="posts_limit_200")],
-                [InlineKeyboardButton("منشورات محددة (أرقام المنشورات)", callback_data="posts_custom")],
+                [InlineKeyboardButton("منشورات محددة (إرسال روابط)", callback_data="posts_custom")],
                 [InlineKeyboardButton("منشورات من فترة محددة", callback_data="posts_date")],
                 [InlineKeyboardButton("منشورات الوسائط فقط", callback_data="posts_media")],
                 [InlineKeyboardButton("🔙 رجوع", callback_data="back_to_channel")],
@@ -308,15 +308,10 @@ async def select_posts_option(update: Update, context: ContextTypes.DEFAULT_TYPE
     if choice == "posts_custom":
         context.user_data['fetch_type'] = 'custom'
         await query.edit_message_text(
-            "أدخل أرقام المنشورات المراد الإبلاغ عنها (مفصولة بمسافات أو فواصل):\n\n"
-            "📌 أمثلة:\n"
-            "123 456 789\n"
-            "123, 456, 789\n"
-            "123\n456\n789\n\n"
-            "💡 لمعرفة رقم المنشور:\n"
-            "• اذهب إلى المنشور في القناة\n"
-            "• ستجد الرقم في آخر جزء من رابط المنشور\n"
-            "• مثال: إذا كان الرابط https://t.me/channel/123 فالرقم هو 123"
+            "أرسل روابط المنشورات المراد الإبلاغ عنها (روابط متعددة مفصولة بمسافة أو أسطر جديدة):\n\n"
+            "📌 مثال:\n"
+            "https://t.me/channel/123\n"
+            "https://t.me/channel/456"
         )
         return ENTER_POSTS_NUMBER
     elif choice == "posts_date":
@@ -392,45 +387,22 @@ async def process_days(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ENTER_DAYS
 
 async def process_posts_number(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالجة إدخال أرقام المنشورات"""
-    # تحليل أرقام المنشورات من النص
-    text = update.message.text.strip()
-    # إزالة الفواصل وتقسيم النص
-    numbers_text = re.sub(r'[,،]', ' ', text)  # استبدال الفواصل بمسافات
-    number_strings = re.split(r'\s+|\n+', numbers_text)
-    
+    """معالجة إدخال روابط المنشورات"""
+    # Allow multiple links separated by space or new line
+    links = re.split(r'\s+|\n+', update.message.text.strip())
     targets = []
-    channel_entity = context.user_data["channel"]  # استخدام كائن القناة المحفوظ
-    invalid_numbers = []
+    channel_entity = context.user_data["channel"] # Use the stored channel entity for parsing
 
-    for num_str in number_strings:
-        num_str = num_str.strip()
-        if not num_str:
-            continue
-            
-        try:
-            message_id = int(num_str)
-            if message_id > 0:  # التأكد من أن الرقم موجب
-                targets.append({
-                    "channel": channel_entity,
-                    "message_id": message_id
-                })
-            else:
-                invalid_numbers.append(num_str)
-        except ValueError:
-            invalid_numbers.append(num_str)
+    for link in links:
+        parsed = parse_message_link(link)
+        if parsed and parsed.get("message_id"):
+            targets.append({
+                "channel": channel_entity,
+                "message_id": parsed["message_id"]
+            })
     
     if not targets:
-        error_msg = "❌ لم يتم العثور على أرقام منشورات صالحة.\n\n"
-        if invalid_numbers:
-            error_msg += f"الأرقام غير الصالحة: {', '.join(invalid_numbers)}\n\n"
-        error_msg += (
-            "تأكد من أن:\n"
-            "• الأرقام صحيحة وموجبة\n"
-            "• الفصل بينها بمسافات أو فواصل\n"
-            "• مثال: 123 456 789"
-        )
-        await update.message.reply_text(error_msg)
+        await update.message.reply_text("❌ لم يتم العثور على روابط صالحة أو أنها لا تخص هذه القناة. أعد المحاولة.")
         return ENTER_POSTS_NUMBER
     
     context.user_data["targets"] = targets

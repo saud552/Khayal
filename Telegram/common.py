@@ -62,7 +62,7 @@ REPORT_TYPES = {
 
 # --- دوال مساعدة مشتركة محسنة ---
 
-def parse_message_link(self, link: str) -> dict | None:
+def parse_message_link(link: str) -> dict | None:
     """تحليل رابط رسالة تليجرام المحسن"""
     try:
         # النمط الأساسي: https://t.me/channel/123

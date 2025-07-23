@@ -11,11 +11,11 @@ from telethon.errors import (
     UsernameNotOccupiedError,
     FloodWaitError,
     InviteHashExpiredError,
-    InviteHashInvalidError
+    InviteInviteHashInvalidError
 )
 from telethon.tl.types import ChatInviteAlready
-from telethon.functions.messages import CheckChatInviteRequest, ImportChatInviteRequest
-from telethon.functions.channels import JoinChannelRequest
+from telethon.tl.functions.messages import CheckChatInviteRequest, ImportChatInviteRequest
+from telethon.tl.functions.channels import JoinChannelRequest
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ConversationHandler,
@@ -167,7 +167,7 @@ async def process_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"✅ تم التحقق من القناة: <b>{context.user_data['channel_title']}</b>\n\n"
                 "اختر طريقة تحديد المنشورات للإبلاغ:",
                 parse_mode="HTML",
-                reply_markup=InlineKeyboardMarkup(keyboard)
+                reply_markup=InlineKeyboardMarkup(keyboard))
             )
             return SELECT_POSTS_OPTION
 
@@ -286,7 +286,7 @@ async def join_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(
                 chat_id=update.effective_chat.id,
                 text="اختر طريقة تحديد المنشورات للإبلاغ:",
-                reply_markup=InlineKeyboardMarkup(keyboard)
+                reply_markup=InlineKeyboardMarkup(keyboard))
             )
             return SELECT_POSTS_OPTION
         else:
@@ -331,7 +331,7 @@ async def select_posts_option(update: Update, context: ContextTypes.DEFAULT_TYPE
         ]
         await query.edit_message_text(
             "اختر عدد المنشورات التي تحتوي على وسائط التي تريد جلبها:",
-            reply_markup=InlineKeyboardMarkup(keyboard)
+            reply_markup=InlineKeyboardMarkup(keyboard))
         )
         return ENTER_MEDIA_LIMIT
     elif choice.startswith("posts_limit_"):
@@ -362,7 +362,7 @@ async def handle_media_limit(update: Update, context: ContextTypes.DEFAULT_TYPE)
         ]
         await query.edit_message_text(
             "اختر طريقة تحديد المنشورات للإبلاغ:",
-            reply_markup=InlineKeyboardMarkup(keyboard)
+            reply_markup=InlineKeyboardMarkup(keyboard))
         )
         return SELECT_POSTS_OPTION
         
@@ -503,7 +503,7 @@ async def process_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🔄 <b>عدد مرات الإبلاغ</b>\n\n"
         "اختر عدد مرات الإبلاغ على كل منشور من كل حساب:",
         parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        reply_markup=InlineKeyboardMarkup(keyboard))
     )
     return ENTER_REPORT_COUNT
 
@@ -533,7 +533,7 @@ async def process_report_count(update: Update, context: ContextTypes.DEFAULT_TYP
         "⏱️ <b>الفاصل الزمني</b>\n\n"
         "اختر الفاصل الزمني بين الإبلاغات:",
         parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        reply_markup=InlineKeyboardMarkup(keyboard))
     )
     return ENTER_DELAY
 
@@ -557,7 +557,7 @@ async def custom_report_count(update: Update, context: ContextTypes.DEFAULT_TYPE
             "⏱️ <b>الفاصل الزمني</b>\n\n"
             "اختر الفاصل الزمني بين الإبلاغات:",
             parse_mode="HTML",
-            reply_markup=InlineKeyboardMarkup(keyboard)
+            reply_markup=InlineKeyboardMarkup(keyboard))
         )
         return ENTER_DELAY
     except ValueError:
@@ -597,7 +597,7 @@ async def process_delay(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(
         summary, 
         parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        reply_markup=InlineKeyboardMarkup(keyboard))
     )
     return CONFIRM_START
 
@@ -628,7 +628,7 @@ async def custom_delay(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             summary, 
             parse_mode="HTML",
-            reply_markup=InlineKeyboardMarkup(keyboard)
+            reply_markup=InlineKeyboardMarkup(keyboard))
         )
         return CONFIRM_START
     except ValueError:
@@ -737,4 +737,4 @@ mass_report_conv = ConversationHandler(
     },
     fallbacks=[CallbackQueryHandler(cancel_operation, pattern='^cancel$')],
     per_user=True,
-)
+    )

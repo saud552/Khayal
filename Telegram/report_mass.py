@@ -221,29 +221,44 @@ async def join_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 # الانضمام باستخدام رابط الدعوة
                 result = await client(ImportChatInviteRequest(invite_hash))
                 
-                # للحساب الأول: استخراج معلومات القناة
+                # للحساب الأول: استخراج معلومات القناة بطريقة محسنة
                 if idx == 0:
+                    channel_entity = None
+                    
                     # الطريقة 1: من نتيجة ImportChatInviteRequest
                     if hasattr(result, 'chats') and result.chats:
                         chat = result.chats[0]
-                        # حفظ الكائن الكامل للقناة
-                        context.user_data["channel"] = chat
-                        context.user_data["channel_title"] = chat.title
                         channel_title = chat.title
                         channel_id = chat.id
-                    else:
-                        # الطريقة 2: استخدام CheckChatInviteRequest
+                        
+                        # إعادة جلب الكائن بطريقة صحيحة للاستعلام
+                        try:
+                            channel_entity = await client.get_entity(chat.id)
+                        except Exception as e:
+                            logger.warning(f"فشل في إعادة جلب كائن القناة: {e}")
+                            channel_entity = chat
+                    
+                    # الطريقة 2: إذا لم تنجح الأولى
+                    if not channel_entity:
                         try:
                             invite_info = await client(CheckChatInviteRequest(invite_hash))
                             if isinstance(invite_info, ChatInviteAlready):
                                 chat = invite_info.chat
-                                # حفظ الكائن الكامل للقناة
-                                context.user_data["channel"] = chat
-                                context.user_data["channel_title"] = chat.title
                                 channel_title = chat.title
                                 channel_id = chat.id
+                                try:
+                                    channel_entity = await client.get_entity(chat.id)
+                                except Exception as e:
+                                    logger.warning(f"فشل في إعادة جلب كائن القناة: {e}")
+                                    channel_entity = chat
                         except Exception as e:
                             logger.error(f"لا يمكن الحصول على معلومات القناة: {e}")
+                    
+                    # حفظ الكائن المحدث
+                    if channel_entity:
+                        context.user_data["channel"] = channel_entity
+                        context.user_data["channel_title"] = getattr(channel_entity, 'title', 'قناة خاصة')
+                        logger.info(f"تم حفظ كائن القناة: {type(channel_entity)} - ID: {channel_entity.id}")
                 
                 success_count += 1
                 logger.info(f"✅ الحساب {idx+1}/{total_accounts} انضم بنجاح")
@@ -443,17 +458,31 @@ async def fetch_posts(update: Update, context: ContextTypes.DEFAULT_TYPE, from_c
     try:
         await client.connect()
         
+        # التأكد من أن الكائن صالح للاستعلام
+        try:
+            # محاولة إعادة جلب الكائن للتأكد من صحته
+            if hasattr(channel_entity, 'id'):
+                resolved_entity = await client.get_entity(channel_entity.id)
+                logger.info(f"تم حل كائن القناة بنجاح: {type(resolved_entity)} - {resolved_entity.id}")
+            else:
+                resolved_entity = await client.get_entity(channel_entity)
+                logger.info(f"تم حل كائن القناة بنجاح: {type(resolved_entity)}")
+        except Exception as e:
+            logger.error(f"فشل في حل كائن القناة: {e}")
+            # استخدام الكائن الأصلي كمحاولة أخيرة
+            resolved_entity = channel_entity
+        
         if fetch_type == 'recent':
             limit = context.user_data['fetch_limit']
-            async for message in client.iter_messages(channel_entity, limit=limit):
-                posts.append({"channel": channel_entity, "message_id": message.id})
+            async for message in client.iter_messages(resolved_entity, limit=limit):
+                posts.append({"channel": resolved_entity, "message_id": message.id})
                 
         elif fetch_type == 'media':
             limit = context.user_data['fetch_limit']
             media_posts_count = 0
-            async for message in client.iter_messages(channel_entity, limit=None):
+            async for message in client.iter_messages(resolved_entity, limit=None):
                 if message.media:
-                    posts.append({"channel": channel_entity, "message_id": message.id})
+                    posts.append({"channel": resolved_entity, "message_id": message.id})
                     media_posts_count += 1
                 if media_posts_count >= limit:
                     break
@@ -461,9 +490,9 @@ async def fetch_posts(update: Update, context: ContextTypes.DEFAULT_TYPE, from_c
         elif fetch_type == 'date':
             days = context.user_data['days']
             offset_date = datetime.now() - timedelta(days=days)
-            async for message in client.iter_messages(channel_entity, offset_date=offset_date):
+            async for message in client.iter_messages(resolved_entity, offset_date=offset_date):
                 if message.date > offset_date:
-                    posts.append({"channel": channel_entity, "message_id": message.id})
+                    posts.append({"channel": resolved_entity, "message_id": message.id})
                 else:
                     break
 

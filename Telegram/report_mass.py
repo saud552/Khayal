@@ -11,7 +11,8 @@ from telethon.errors import (
     UsernameNotOccupiedError,
     FloodWaitError,
     InviteHashExpiredError,
-    InviteHashInvalidError
+    InviteHashInvalidError,
+    UserAlreadyParticipantError
 )
 from telethon.tl.types import ChatInviteAlready
 from telethon.tl.functions.messages import CheckChatInviteRequest, ImportChatInviteRequest
@@ -248,8 +249,13 @@ async def join_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
                 # الانضمام باستخدام رابط الدعوة
                 logger.info(f"🔗 محاولة الانضمام للحساب {idx+1} باستخدام رابط الدعوة")
-                result = await client(ImportChatInviteRequest(invite_hash))
-                logger.info(f"✅ نجح الانضمام للحساب {idx+1}")
+                try:
+                    result = await client(ImportChatInviteRequest(invite_hash))
+                    logger.info(f"✅ نجح الانضمام للحساب {idx+1}")
+                except UserAlreadyParticipantError:
+                    logger.info(f"✅ الحساب {idx+1} منضم بالفعل للقناة")
+                    # الحساب منضم بالفعل، نعتبر هذا نجاح
+                    result = None
                 
                 # للحساب الأول: استخراج معلومات القناة بطريقة محسنة
                 if idx == 0:
@@ -293,6 +299,21 @@ async def join_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 # تأخير بين الحسابات لتجنب الحظر
                 await asyncio.sleep(5)
                 
+            except UserAlreadyParticipantError:
+                logger.info(f"✅ الحساب {idx+1} منضم بالفعل للقناة")
+                success_count += 1
+                # للحساب الأول: الحصول على معلومات القناة
+                if idx == 0:
+                    try:
+                        invite_info = await client(CheckChatInviteRequest(invite_hash))
+                        if isinstance(invite_info, ChatInviteAlready):
+                            chat = invite_info.chat
+                            channel_entity = await client.get_entity(chat.id)
+                            context.user_data["channel"] = channel_entity
+                            context.user_data["channel_title"] = chat.title
+                            logger.info(f"تم حفظ كائن القناة: {type(channel_entity)} - ID: {channel_entity.id}")
+                    except Exception as e:
+                        logger.error(f"فشل في الحصول على معلومات القناة للحساب المنضم: {e}")
             except FloodWaitError as e:
                 logger.warning(f"⏳ الحساب {idx+1}: يجب الانتظار {e.seconds} ثانية")
                 failed_reasons.append(f"الحساب {idx+1}: FloodWait لمدة {e.seconds} ثانية")
@@ -302,6 +323,9 @@ async def join_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await client(ImportChatInviteRequest(invite_hash))
                     success_count += 1
                     logger.info(f"✅ نجح الانضمام للحساب {idx+1} بعد FloodWait")
+                except UserAlreadyParticipantError:
+                    logger.info(f"✅ الحساب {idx+1} منضم بالفعل للقناة (بعد FloodWait)")
+                    success_count += 1
                 except Exception as retry_e:
                     logger.error(f"❌ فشل الانضمام للحساب {idx+1} حتى بعد FloodWait: {retry_e}")
                     failed_reasons.append(f"الحساب {idx+1}: {str(retry_e)}")

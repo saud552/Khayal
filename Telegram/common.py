@@ -62,7 +62,7 @@ REPORT_TYPES = {
 
 # --- دوال مساعدة مشتركة محسنة ---
 
-def parse_message_link(self, link: str) -> dict | None:
+def parse_message_link(link: str) -> dict | None:
     """تحليل رابط رسالة تليجرام المحسن"""
     try:
         # النمط الأساسي: https://t.me/channel/123
@@ -86,15 +86,6 @@ def parse_message_link(self, link: str) -> dict | None:
         # دعم الروابط بدون بروتوكول
         no_protocol_pattern = r"t\.me/([a-zA-Z0-9_]+)/(\d+)"
         match = re.search(no_protocol_pattern, link)
-        if match:
-            return {
-                "channel": match.group(1),
-                "message_id": int(match.group(2))
-            }
-        
-        # دعم الروابط التي تحتوي على شرطة تحت (_)
-        underscore_pattern = r"https?://t\.me/([a-zA-Z0-9_]+)/(\d+)"
-        match = re.search(underscore_pattern, link)
         if match:
             return {
                 "channel": match.group(1),

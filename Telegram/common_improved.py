@@ -350,21 +350,34 @@ class VerifiedReporter:
             # الحالة 1: الهدف هو قاموس (نتيجة من parse_message_link)
             if isinstance(target, dict) and 'channel' in target and 'message_id' in target:
                 try:
-                    # المحاولة الأولى: حل باستخدام معرف القناة إذا كان رقماً
-                    if isinstance(target['channel'], int):
-                        entity = await self.client.get_entity(target['channel'])
-                    else:
-                        # المحاولة الثانية: التحقق من صحة اسم المستخدم
-                        username = target['channel'].lstrip('@')
+                    # التحقق من نوع الكائن المُمرر
+                    channel_ref = target['channel']
+                    
+                    # إذا كان كائن Telethon، استخدمه مباشرة
+                    if hasattr(channel_ref, 'id') and hasattr(channel_ref, '__class__'):
+                        entity = channel_ref
+                    # إذا كان معرف رقمي
+                    elif isinstance(channel_ref, int):
+                        entity = await self.client.get_entity(channel_ref)
+                    # إذا كان نص (اسم مستخدم)
+                    elif isinstance(channel_ref, str):
+                        username = channel_ref.lstrip('@')
                         if re.match(r'^[a-zA-Z][\w\d]{3,30}[a-zA-Z\d]$', username):
                             entity = await self.client.get_entity(username)
                         else:
-                            # المحاولة الثالثة: حل كمعرف قناة مباشرة
-                            entity = await self.client.get_entity(types.PeerChannel(target['channel']))
+                            # حل كمعرف قناة مباشرة
+                            entity = await self.client.get_entity(types.PeerChannel(channel_ref))
+                    else:
+                        # محاولة أخيرة باستخدام الكائن مباشرة
+                        entity = await self.client.get_entity(channel_ref)
+                        
                 except (ValueError, TypeError, RPCError) as e:
-                    # المحاولة الرابعة: حل باستخدام معرف القناة كرقم
+                    # المحاولة الأخيرة: حل باستخدام معرف القناة كرقم
                     try:
-                        entity = await self.client.get_entity(types.PeerChannel(int(target['channel'])))
+                        if hasattr(target['channel'], 'id'):
+                            entity = await self.client.get_entity(target['channel'].id)
+                        else:
+                            entity = await self.client.get_entity(types.PeerChannel(int(target['channel'])))
                     except:
                         raise ValueError(f"فشل في حل القناة: {target['channel']} - {str(e)}")
                 

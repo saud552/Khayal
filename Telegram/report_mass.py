@@ -11,7 +11,8 @@ from telethon.errors import (
     UsernameNotOccupiedError,
     FloodWaitError,
     InviteHashExpiredError,
-    InviteInviteHashInvalidError
+    InviteHashInvalidError,
+    UserAlreadyParticipantError
 )
 from telethon.tl.types import ChatInviteAlready
 from telethon.tl.functions.messages import CheckChatInviteRequest, ImportChatInviteRequest
@@ -119,15 +120,30 @@ async def process_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await client.connect()
             # التحقق من الدعوة
             invite = await client(CheckChatInviteRequest(invite_hash))
-            context.user_data["channel_title"] = invite.title
+            
+            # التحقق من نوع الاستجابة
+            if isinstance(invite, ChatInviteAlready):
+                # الحساب منضم بالفعل للقناة
+                context.user_data["channel_title"] = invite.chat.title
+                context.user_data["already_joined"] = True
+            else:
+                # دعوة عادية
+                context.user_data["channel_title"] = invite.title
+                context.user_data["already_joined"] = False
             
             # عرض خيار الانضمام
             keyboard = [
                 [InlineKeyboardButton("✅ نعم، انضم ثم تابع", callback_data="join_channel")],
                 [InlineKeyboardButton("❌ إلغاء", callback_data="cancel")]
             ]
+            
+            if context.user_data.get("already_joined", False):
+                message_text = f"🔒 تم التعرف على رابط دعوة خاص للقناة '{context.user_data['channel_title']}'.\n\n✅ الحساب الأول منضم بالفعل. هل تريد المتابعة والانضمام بباقي الحسابات؟"
+            else:
+                message_text = f"🔒 تم التعرف على رابط دعوة خاص. هل تريد الانضمام إلى '{context.user_data['channel_title']}' باستخدام الحسابات؟"
+            
             await update.message.reply_text(
-                f"🔒 تم التعرف على رابط دعوة خاص. هل تريد الانضمام إلى '{invite.title}' باستخدام الحسابات؟",
+                message_text,
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
             return JOIN_CHANNEL
@@ -139,7 +155,11 @@ async def process_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return ENTER_CHANNEL
         except Exception as e:
             logger.error(f"خطأ في فحص الدعوة: {e}")
-            await update.message.reply_text("❌ حدث خطأ أثناء فحص رابط الدعوة.")
+            await update.message.reply_text(
+                f"❌ حدث خطأ أثناء فحص رابط الدعوة.\n"
+                f"تفاصيل الخطأ: {str(e)}\n\n"
+                f"يرجى التأكد من صحة الرابط ومحاولة مرة أخرى."
+            )
             return ENTER_CHANNEL
         finally:
             if client.is_connected():
@@ -150,8 +170,9 @@ async def process_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             # محاولة الحصول على الكيان
             entity = await client.get_entity(channel_link)
-            context.user_data["channel"] = entity.username or entity.id
-            context.user_data["channel_title"] = entity.title
+            # حفظ الكيان الكامل للاستخدام لاحقاً
+            context.user_data["channel"] = entity
+            context.user_data["channel_title"] = getattr(entity, 'title', getattr(entity, 'username', str(entity.id)))
 
             # عرض خيارات جلب المنشورات للقنوات العامة
             keyboard = [
@@ -209,38 +230,68 @@ async def join_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         success_count = 0
         total_accounts = len(accounts)
         channel_id = None
+        failed_reasons = []
         
         for idx, account in enumerate(accounts):
             session_str = account["session"]
+            username = account.get("username", f"الحساب {idx+1}")
+            logger.info(f"🔄 محاولة انضمام الحساب {idx+1}/{total_accounts}: {username}")
+            
             client = TelegramClient(StringSession(session_str), API_ID, API_HASH)
             
             try:
                 await client.connect()
+                logger.info(f"✅ تم الاتصال بالحساب {idx+1} بنجاح")
+                
+                # التحقق من تفويض الحساب
+                if not await client.is_user_authorized():
+                    raise Exception(f"الحساب {idx+1} غير مفوض أو انتهت صلاحية الجلسة")
                 
                 # الانضمام باستخدام رابط الدعوة
-                result = await client(ImportChatInviteRequest(invite_hash))
+                logger.info(f"🔗 محاولة الانضمام للحساب {idx+1} باستخدام رابط الدعوة")
+                try:
+                    result = await client(ImportChatInviteRequest(invite_hash))
+                    logger.info(f"✅ نجح الانضمام للحساب {idx+1}")
+                except UserAlreadyParticipantError:
+                    logger.info(f"✅ الحساب {idx+1} منضم بالفعل للقناة")
+                    # الحساب منضم بالفعل، نعتبر هذا نجاح
+                    result = None
                 
-                # للحساب الأول: استخراج معلومات القناة
+                # للحساب الأول: استخراج معلومات القناة بطريقة محسنة
                 if idx == 0:
-                    # الطريقة 1: من نتيجة ImportChatInviteRequest
-                    if hasattr(result, 'chats') and result.chats:
-                        chat = result.chats[0]
-                        context.user_data["channel"] = chat.id
-                        context.user_data["channel_title"] = chat.title
-                        channel_title = chat.title
-                        channel_id = chat.id
-                    else:
-                        # الطريقة 2: استخدام CheckChatInviteRequest
+                    channel_entity = None
+                    
+                    # التحقق إذا كان الحساب منضماً بالفعل (من الفحص المسبق)
+                    if context.user_data.get("already_joined", False):
+                        # استخدام CheckChatInviteRequest للحصول على معلومات القناة
                         try:
                             invite_info = await client(CheckChatInviteRequest(invite_hash))
                             if isinstance(invite_info, ChatInviteAlready):
                                 chat = invite_info.chat
-                                context.user_data["channel"] = chat.id
-                                context.user_data["channel_title"] = chat.title
                                 channel_title = chat.title
                                 channel_id = chat.id
+                                channel_entity = await client.get_entity(chat.id)
                         except Exception as e:
-                            logger.error(f"لا يمكن الحصول على معلومات القناة: {e}")
+                            logger.error(f"فشل في الحصول على معلومات القناة للحساب المنضم: {e}")
+                    else:
+                        # الطريقة العادية: من نتيجة ImportChatInviteRequest
+                        if hasattr(result, 'chats') and result.chats:
+                            chat = result.chats[0]
+                            channel_title = chat.title
+                            channel_id = chat.id
+                            
+                            # إعادة جلب الكائن بطريقة صحيحة للاستعلام
+                            try:
+                                channel_entity = await client.get_entity(chat.id)
+                            except Exception as e:
+                                logger.warning(f"فشل في إعادة جلب كائن القناة: {e}")
+                                channel_entity = chat
+                    
+                    # حفظ الكائن المحدث
+                    if channel_entity:
+                        context.user_data["channel"] = channel_entity
+                        context.user_data["channel_title"] = getattr(channel_entity, 'title', 'قناة خاصة')
+                        logger.info(f"تم حفظ كائن القناة: {type(channel_entity)} - ID: {channel_entity.id}")
                 
                 success_count += 1
                 logger.info(f"✅ الحساب {idx+1}/{total_accounts} انضم بنجاح")
@@ -248,19 +299,43 @@ async def join_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 # تأخير بين الحسابات لتجنب الحظر
                 await asyncio.sleep(5)
                 
+            except UserAlreadyParticipantError:
+                logger.info(f"✅ الحساب {idx+1} منضم بالفعل للقناة")
+                success_count += 1
+                # للحساب الأول: الحصول على معلومات القناة
+                if idx == 0:
+                    try:
+                        invite_info = await client(CheckChatInviteRequest(invite_hash))
+                        if isinstance(invite_info, ChatInviteAlready):
+                            chat = invite_info.chat
+                            channel_entity = await client.get_entity(chat.id)
+                            context.user_data["channel"] = channel_entity
+                            context.user_data["channel_title"] = chat.title
+                            logger.info(f"تم حفظ كائن القناة: {type(channel_entity)} - ID: {channel_entity.id}")
+                    except Exception as e:
+                        logger.error(f"فشل في الحصول على معلومات القناة للحساب المنضم: {e}")
             except FloodWaitError as e:
-                logger.warning(f"⏳ الحساب {idx+1}: يجب الانتظار {e.seconds} ثانية - تخطي")
+                logger.warning(f"⏳ الحساب {idx+1}: يجب الانتظار {e.seconds} ثانية")
+                failed_reasons.append(f"الحساب {idx+1}: FloodWait لمدة {e.seconds} ثانية")
                 await asyncio.sleep(e.seconds)
                 try:
+                    logger.info(f"🔄 إعادة محاولة الانضمام للحساب {idx+1} بعد FloodWait")
                     await client(ImportChatInviteRequest(invite_hash))
                     success_count += 1
-                except Exception:
-                    pass
+                    logger.info(f"✅ نجح الانضمام للحساب {idx+1} بعد FloodWait")
+                except UserAlreadyParticipantError:
+                    logger.info(f"✅ الحساب {idx+1} منضم بالفعل للقناة (بعد FloodWait)")
+                    success_count += 1
+                except Exception as retry_e:
+                    logger.error(f"❌ فشل الانضمام للحساب {idx+1} حتى بعد FloodWait: {retry_e}")
+                    failed_reasons.append(f"الحساب {idx+1}: {str(retry_e)}")
             except Exception as e:
                 logger.error(f"❌ الحساب {idx+1}: فشل الانضمام - {e}")
+                failed_reasons.append(f"الحساب {idx+1}: {str(e)}")
             finally:
                 if client.is_connected():
                     await client.disconnect()
+                    logger.info(f"🔌 تم قطع الاتصال مع الحساب {idx+1}")
         
         # عرض نتائج الانضمام
         if success_count > 0:
@@ -290,7 +365,16 @@ async def join_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return SELECT_POSTS_OPTION
         else:
-            await query.edit_message_text("❌ فشلت جميع الحسابات في الانضمام إلى القناة. يرجى التحقق من الرابط والمحاولة مرة أخرى.")
+            # عرض تفاصيل الأخطاء
+            error_details = "\n".join(failed_reasons[:5])  # أول 5 أخطاء فقط
+            await query.edit_message_text(
+                f"❌ فشلت جميع الحسابات في الانضمام إلى القناة.\n\n"
+                f"تفاصيل الأخطاء:\n{error_details}\n\n"
+                f"يرجى التحقق من:\n"
+                f"• صحة رابط الدعوة\n"
+                f"• أن الحسابات لم تُحظر من القناة\n"
+                f"• أن الحسابات تعمل بشكل صحيح"
+            )
             return ConversationHandler.END
     else:
         await query.edit_message_text("تم الإلغاء.")
@@ -431,7 +515,7 @@ async def fetch_posts(update: Update, context: ContextTypes.DEFAULT_TYPE, from_c
     else: # Fallback, should ideally not happen if called correctly
         msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=loading_text)
 
-    channel_entity_id = context.user_data["channel"]
+    channel_entity = context.user_data["channel"]
     session_str = context.user_data["accounts"][0]["session"]
     
     client = TelegramClient(StringSession(session_str), API_ID, API_HASH)
@@ -440,17 +524,31 @@ async def fetch_posts(update: Update, context: ContextTypes.DEFAULT_TYPE, from_c
     try:
         await client.connect()
         
+        # التأكد من أن الكائن صالح للاستعلام
+        try:
+            # محاولة إعادة جلب الكائن للتأكد من صحته
+            if hasattr(channel_entity, 'id'):
+                resolved_entity = await client.get_entity(channel_entity.id)
+                logger.info(f"تم حل كائن القناة بنجاح: {type(resolved_entity)} - {resolved_entity.id}")
+            else:
+                resolved_entity = await client.get_entity(channel_entity)
+                logger.info(f"تم حل كائن القناة بنجاح: {type(resolved_entity)}")
+        except Exception as e:
+            logger.error(f"فشل في حل كائن القناة: {e}")
+            # استخدام الكائن الأصلي كمحاولة أخيرة
+            resolved_entity = channel_entity
+        
         if fetch_type == 'recent':
             limit = context.user_data['fetch_limit']
-            async for message in client.iter_messages(channel_entity_id, limit=limit):
-                posts.append({"channel": channel_entity_id, "message_id": message.id})
+            async for message in client.iter_messages(resolved_entity, limit=limit):
+                posts.append({"channel": resolved_entity, "message_id": message.id})
                 
         elif fetch_type == 'media':
             limit = context.user_data['fetch_limit']
             media_posts_count = 0
-            async for message in client.iter_messages(channel_entity_id, limit=None):
+            async for message in client.iter_messages(resolved_entity, limit=None):
                 if message.media:
-                    posts.append({"channel": channel_entity_id, "message_id": message.id})
+                    posts.append({"channel": resolved_entity, "message_id": message.id})
                     media_posts_count += 1
                 if media_posts_count >= limit:
                     break
@@ -458,9 +556,9 @@ async def fetch_posts(update: Update, context: ContextTypes.DEFAULT_TYPE, from_c
         elif fetch_type == 'date':
             days = context.user_data['days']
             offset_date = datetime.now() - timedelta(days=days)
-            async for message in client.iter_messages(channel_entity_id, offset_date=offset_date):
+            async for message in client.iter_messages(resolved_entity, offset_date=offset_date):
                 if message.date > offset_date:
-                    posts.append({"channel": channel_entity_id, "message_id": message.id})
+                    posts.append({"channel": resolved_entity, "message_id": message.id})
                 else:
                     break
 

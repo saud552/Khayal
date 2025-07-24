@@ -245,7 +245,7 @@ async def process_proxy_links(update: Update, context: ContextTypes.DEFAULT_TYPE
     # تحليل الروابط بالنظام المحسن
     parsed_proxies = []
     for link in input_links:
-        proxy_info = parse_proxy_link_enhanced(link)
+        proxy_info = parse_proxy_link(link)
         if proxy_info:
             parsed_proxies.append(proxy_info)
         else:

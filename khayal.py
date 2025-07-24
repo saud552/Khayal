@@ -94,14 +94,23 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
+    welcome_text = (
+        "👋 <b>أهلاً بك في البوت المطور!</b>\n\n"
+        "🆕 <b>جديد:</b> ميزة فحص البروكسي اليدوي!\n"
+        "👆 محاكاة النقر الحقيقي على روابط البروكسي\n\n"
+        "اختر القسم الذي تريد العمل عليه:"
+    )
+    
     if update.callback_query:
         await update.callback_query.edit_message_text(
-             "👋 أهلاً بك! اختر القسم الذي تريد العمل عليه:",
+             welcome_text,
+             parse_mode="HTML",
              reply_markup=reply_markup
         )
     else:
         await update.message.reply_text(
-            "👋 أهلاً بك! اختر القسم الذي تريد العمل عليه:",
+            welcome_text,
+            parse_mode="HTML",
             reply_markup=reply_markup
         )
 
@@ -182,9 +191,11 @@ async def process_category_selection(update: Update, context: ContextTypes.DEFAU
 async def process_proxy_option(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """تعالج خيار استخدام البروكسي وتطلب الروابط إذا لزم الأمر."""
     query = update.callback_query
+    logger.info(f"🎯 معالجة خيار البروكسي: {query.data}")
     await query.answer()
     
     if query.data == "use_proxy":
+        logger.info("📱 عرض قائمة خيارات فحص البروكسي مع الأزرار")
         await query.edit_message_text(
             "🌐 <b>إدخال روابط البروكسي</b>\n\n"
             "أرسل روابط بروكسي MTProto (كل رابط في سطر):\n\n"
@@ -201,6 +212,7 @@ async def process_proxy_option(update: Update, context: ContextTypes.DEFAULT_TYP
                 [InlineKeyboardButton("إلغاء ❌", callback_data="cancel_setup")]
             ])
         )
+        logger.info("✅ تم عرض أزرار فحص البروكسي بنجاح")
         return ENTER_PROXY_LINKS
         
     context.user_data['proxies'] = []
@@ -209,6 +221,7 @@ async def process_proxy_option(update: Update, context: ContextTypes.DEFAULT_TYP
 async def handle_proxy_method_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """معالجة اختيار طريقة فحص البروكسي"""
     query = update.callback_query
+    logger.info(f"🔍 تم استقبال callback: {query.data}")
     await query.answer()
     
     if query.data == "proxy_method_normal":
@@ -507,6 +520,14 @@ def main() -> None:
         ],
         per_user=True,
     )
+    
+    # --- معالج عام لتتبع جميع callbacks ---
+    async def debug_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        logger.info(f"🐛 DEBUG: استقبال callback: {query.data} من المستخدم: {query.from_user.id}")
+        # لا نجيب على الـ callback هنا لأن المعالجات الأخرى ستفعل ذلك
+    
+    app.add_handler(CallbackQueryHandler(debug_callback_handler), group=10)  # مجموعة منخفضة الأولوية
     
     # --- إضافة جميع المعالجات إلى التطبيق ---
     app.add_handler(telegram_setup_conv)

@@ -121,6 +121,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def show_telegram_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """يعرض قائمة خيارات قسم تيليجرام."""
     query = update.callback_query
+    logger.info(f"🔄 المستخدم دخل قائمة تيليجرام: {query.data}")
     await query.answer()
     
     keyboard = [
@@ -140,6 +141,7 @@ async def show_telegram_menu(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def choose_session_source(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """الخطوة 1: تطلب من المستخدم اختيار فئة الحسابات."""
     query = update.callback_query
+    logger.info(f"🔄 المستخدم بدأ اختيار مصدر الجلسات: {query.data}")
     await query.answer()
     
     categories = get_categories()
@@ -164,6 +166,7 @@ async def choose_session_source(update: Update, context: ContextTypes.DEFAULT_TY
 async def process_category_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """الخطوة 2: تعالج اختيار الفئة وتطلب خيار البروكسي."""
     query = update.callback_query
+    logger.info(f"🔄 المستخدم اختار فئة: {query.data}")
     await query.answer()
     category_id = query.data.split("_")[1]
     

@@ -363,6 +363,11 @@ def main() -> None:
     # --- معالج البدء الرئيسي ---
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(back_to_main_menu, pattern='^back_to_main_menu$'))
+    
+    # --- معالج قسم الإيميل ---
+    if email_conv_handler:
+        from Email.email_reports import start_email
+        app.add_handler(CallbackQueryHandler(start_email, pattern='^main_email$'))
 
     # --- معالج قسم تيليجرام (الإعداد الأولي) ---
     telegram_setup_conv = ConversationHandler(

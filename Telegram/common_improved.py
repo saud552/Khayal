@@ -966,32 +966,37 @@ def convert_secret_enhanced(secret: str) -> str | None:
         return None
     
     secret = secret.strip()
+    original_secret = secret
     
-    # إزالة المسافات والأحرف الخاصة (ما عدا الصالحة للـ base64)
-    clean_secret = re.sub(r'[^A-Fa-f0-9\-_=+/]', '', secret)
-    
-    # فحص الصيغة السداسية المباشرة
-    hex_only = re.sub(r'[^A-Fa-f0-9]', '', clean_secret)
+    # محاولة 1: فحص الصيغة السداسية المباشرة (بما في ذلك الأحرف الكبيرة)
+    hex_only = re.sub(r'[^A-Fa-f0-9]', '', secret)
     if re.fullmatch(r'[A-Fa-f0-9]+', hex_only) and len(hex_only) % 2 == 0:
-        if 32 <= len(hex_only) <= 64:  # سر صالح (16-32 bytes)
+        if 32 <= len(hex_only) <= 156:  # دعم أسرار أطول للـ MTProto
+            detailed_logger.debug(f"✅ سر hex مباشر: {len(hex_only)} حرف")
             return hex_only.lower()
     
-    # محاولة فك base64 مع معالجة أفضل للأخطاء
-    for attempt in range(3):
+    # محاولة 2: base64 عادي مع معالجة شاملة
+    base64_attempts = [
+        secret,  # كما هو
+        secret.replace('_', '/').replace('-', '+'),  # URL-safe base64
+        re.sub(r'[^A-Za-z0-9+/=]', '', secret),  # إزالة الرموز الخاصة
+    ]
+    
+    # إضافة محاولات مع إزالة البادئات
+    for prefix in ['ee', 'dd', '00', 'ff']:
+        if secret.lower().startswith(prefix):
+            base64_attempts.extend([
+                secret[len(prefix):],
+                secret[len(prefix):].replace('_', '/').replace('-', '+'),
+                re.sub(r'[^A-Za-z0-9+/=]', '', secret[len(prefix):])
+            ])
+    
+    # تجربة جميع المحاولات
+    for attempt_num, test_secret in enumerate(base64_attempts):
+        if not test_secret:
+            continue
+            
         try:
-            test_secret = secret
-            
-            # إزالة البادئات في المحاولة الأولى
-            if attempt == 0:
-                for prefix in ['ee', 'dd', '00', 'ff']:
-                    if test_secret.lower().startswith(prefix):
-                        test_secret = test_secret[len(prefix):]
-                        break
-            
-            # تحويل base64 URL-safe في المحاولة الثانية
-            elif attempt == 1:
-                test_secret = test_secret.replace('-', '+').replace('_', '/')
-            
             # إضافة padding إذا لزم الأمر
             padding_needed = 4 - (len(test_secret) % 4)
             if padding_needed != 4:
@@ -1001,28 +1006,48 @@ def convert_secret_enhanced(secret: str) -> str | None:
             decoded = base64.b64decode(test_secret)
             hex_secret = decoded.hex()
             
-            # التحقق من صحة الطول
-            if 32 <= len(hex_secret) <= 64:
-                detailed_logger.debug(f"✅ تم تحويل السر بنجاح: {len(hex_secret)} حرف")
+            # التحقق من صحة الطول (دعم أسرار مختلفة الأطوال)
+            if 32 <= len(hex_secret) <= 320:  # من 16 إلى 160 بايت
+                detailed_logger.debug(f"✅ تم تحويل السر عبر base64 (محاولة {attempt_num + 1}): {len(hex_secret)} حرف")
                 return hex_secret.lower()
                 
         except Exception as e:
-            detailed_logger.debug(f"❌ فشل في المحاولة {attempt + 1}: {e}")
+            detailed_logger.debug(f"❌ فشل في محاولة base64 {attempt_num + 1}: {e}")
             continue
     
-    # محاولة أخيرة: فحص إذا كان السر مكود بـ base64 عادي
-    try:
-        # إزالة جميع المسافات والرموز الخاصة
-        clean_for_b64 = re.sub(r'[^A-Za-z0-9+/=]', '', secret)
-        if clean_for_b64:
-            decoded = base64.b64decode(clean_for_b64)
-            hex_secret = decoded.hex()
-            if 32 <= len(hex_secret) <= 64:
-                return hex_secret.lower()
-    except Exception:
-        pass
+    # محاولة 3: hex مع إزالة البادئات
+    for prefix in ['ee', 'dd', '00', 'ff']:
+        if secret.lower().startswith(prefix):
+            remaining = secret[len(prefix):]
+            hex_only = re.sub(r'[^A-Fa-f0-9]', '', remaining)
+            if re.fullmatch(r'[A-Fa-f0-9]+', hex_only) and len(hex_only) % 2 == 0:
+                if 32 <= len(hex_only) <= 156:
+                    detailed_logger.debug(f"✅ سر hex مع بادئة {prefix}: {len(hex_only)} حرف")
+                    return hex_only.lower()
     
-    detailed_logger.warning(f"⚠️ فشل في تحويل السر: {secret[:20]}...")
+    # محاولة 4: معالجة خاصة للأسرار المعقدة
+    try:
+        # إزالة جميع الرموز غير المطلوبة
+        clean_secret = re.sub(r'[^A-Za-z0-9+/=_-]', '', secret)
+        if clean_secret:
+            # تحويل URL-safe base64
+            clean_secret = clean_secret.replace('-', '+').replace('_', '/')
+            
+            # إضافة padding
+            while len(clean_secret) % 4 != 0:
+                clean_secret += '='
+            
+            decoded = base64.b64decode(clean_secret)
+            hex_secret = decoded.hex()
+            
+            if 16 <= len(hex_secret) <= 320:  # أي سر معقول
+                detailed_logger.debug(f"✅ تم تحويل السر بالمعالجة الخاصة: {len(hex_secret)} حرف")
+                return hex_secret.lower()
+                
+    except Exception as e:
+        detailed_logger.debug(f"❌ فشل في المعالجة الخاصة: {e}")
+    
+    detailed_logger.warning(f"⚠️ فشل في تحويل السر: {original_secret[:30]}... (طول: {len(original_secret)})")
     return None
 
 def parse_proxy_link_enhanced(link: str) -> dict | None:

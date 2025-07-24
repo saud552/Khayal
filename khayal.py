@@ -261,7 +261,7 @@ async def process_proxy_links(update: Update, context: ContextTypes.DEFAULT_TYPE
             await msg.edit_text(f"🔍 بدء الفحص العميق لـ {len(parsed_proxies)} بروكسي باستخدام الحساب المحدد...")
             
             # استخدام النظام المحسن للفحص المتوازي
-            valid_proxies = await enhanced_proxy_checker.batch_check_proxies(session_str, parsed_proxies)
+            valid_proxies = await proxy_checker.batch_check_proxies(session_str, parsed_proxies)
         except Exception as e:
             logger.error(f"خطأ في فحص البروكسي: {e}")
             await msg.edit_text(f"❌ حدث خطأ في فحص البروكسي: {e}\nسيتم حفظ البروكسيات بدون فحص.")
@@ -322,7 +322,7 @@ async def process_proxy_links(update: Update, context: ContextTypes.DEFAULT_TYPE
         
         if active_proxies:
             # الحصول على أفضل البروكسيات المفحوصة
-            best_proxies = enhanced_proxy_checker.get_best_proxies(active_proxies, 3)
+            best_proxies = proxy_checker.get_best_proxies(active_proxies, 3)
             best_details = "\n".join([
                 f"• {p['server']} - جودة: {p.get('quality_score', 0)}% - {p.get('ping', 0)}ms"
                 for p in best_proxies[:3]

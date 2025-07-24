@@ -206,7 +206,12 @@ class EnhancedProxyChecker:
             
             # تحضير السر مع معالجة أفضل للأخطاء
             secret = proxy_info["secret"]
-            if isinstance(secret, str):
+            
+            # معالجة شاملة لأنواع الأسرار المختلفة
+            if isinstance(secret, bytes):
+                # السر موجود كـ bytes بالفعل
+                secret_bytes = secret
+            elif isinstance(secret, str):
                 try:
                     # التحقق من صحة تنسيق السر
                     if len(secret) < 32 or len(secret) % 2 != 0:
@@ -216,7 +221,13 @@ class EnhancedProxyChecker:
                     self._blacklist_proxy(proxy_info, f"سر غير صالح: {e}")
                     raise ProxyTestFailed(f"سر غير صالح: {secret}")
             else:
-                secret_bytes = secret
+                # نوع غير متوقع، محاولة تحويل
+                try:
+                    secret_str = str(secret)
+                    secret_bytes = bytes.fromhex(secret_str)
+                except Exception as e:
+                    self._blacklist_proxy(proxy_info, f"نوع سر غير مدعوم: {type(secret)}")
+                    raise ProxyTestFailed(f"نوع سر غير مدعوم: {type(secret)}")
             
             params["proxy"] = (
                 proxy_info["server"],

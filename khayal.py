@@ -209,8 +209,15 @@ async def process_proxy_links(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     accounts = context.user_data.get("accounts")
     if not accounts:
-        await update.message.reply_text("❌ خطأ: لا توجد حسابات للتحقق من البروكسيات.")
-        return ConversationHandler.END
+        await update.message.reply_text(
+            "⚠️ لا توجد حسابات مضافة لفحص البروكسيات.\n"
+            "سيتم حفظ البروكسيات بدون فحص وستكون جاهزة للاستخدام.\n\n"
+            "💡 لفحص البروكسيات، قم بإضافة حسابات أولاً من القائمة الرئيسية."
+        )
+        # متابعة بدون فحص
+        session_str = None
+    else:
+        session_str = accounts[0]["session"]
 
     # تطبيق الحد الأقصى للبروكسيات
     MAX_PROXIES = enhanced_config.proxy.quality_threshold or 50

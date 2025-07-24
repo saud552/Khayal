@@ -216,8 +216,24 @@ async def process_proxy_links(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         # متابعة بدون فحص
         session_str = None
+        valid_accounts = []
     else:
-        session_str = accounts[0]["session"]
+        # البحث عن أفضل حساب صالح للفحص
+        valid_accounts = []
+        for account in accounts:
+            if account.get("session") and len(account["session"]) > 10:  # تحقق أساسي من الجلسة
+                valid_accounts.append(account)
+        
+        if not valid_accounts:
+            await update.message.reply_text(
+                "❌ لا توجد حسابات بجلسات صالحة لفحص البروكسي.\n"
+                "تحقق من إضافة الحسابات بشكل صحيح."
+            )
+            session_str = None
+        else:
+            # استخدام أول حساب صالح
+            session_str = valid_accounts[0]["session"]
+            logger.info(f"🔑 استخدام حساب {valid_accounts[0].get('phone', 'غير محدد')} لفحص البروكسي")
 
     # تطبيق الحد الأقصى للبروكسيات
     MAX_PROXIES = enhanced_config.proxy.quality_threshold or 50

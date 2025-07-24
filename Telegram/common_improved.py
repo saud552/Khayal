@@ -1452,3 +1452,144 @@ async def monitor_enhanced_progress(context: ContextTypes.DEFAULT_TYPE,
     
     # حفظ التقرير المفصل
     detailed_logger.info(f"📋 تقرير نهائي: {json.dumps(final_stats, indent=2, ensure_ascii=False)}")
+
+async def simulate_manual_proxy_click(session_str: str, proxy_link: str) -> dict:
+    """محاكاة النقر اليدوي على رابط البروكسي كما يحدث في تليجرام"""
+    detailed_logger.info(f"🔄 محاكاة النقر اليدوي على رابط البروكسي...")
+    
+    result = {
+        "status": "unknown",
+        "method": "manual_click_simulation",
+        "link": proxy_link,
+        "error": None,
+        "steps": []
+    }
+    
+    client = None
+    try:
+        # خطوة 1: إنشاء عميل تليجرام عادي (بدون بروكسي)
+        result["steps"].append("إنشاء اتصال تليجرام مباشر")
+        client = TelegramClient(
+            StringSession(session_str),
+            api_id=2040,
+            api_hash='b18441a1ff607e10fd989dcf492e8426',
+            device_model='Desktop',
+            system_version='Windows 10',
+            app_version='Telegram Desktop',
+            lang_code='en'
+        )
+        
+        # خطوة 2: الاتصال بتليجرام
+        result["steps"].append("الاتصال بخوادم تليجرام")
+        await client.connect()
+        
+        if not await client.is_user_authorized():
+            result["error"] = "الجلسة غير مفوضة"
+            result["status"] = "failed"
+            return result
+        
+        result["steps"].append("تم تأكيد صحة الجلسة")
+        
+        # خطوة 3: محاولة الحصول على معلومات البروكسي من الرابط
+        proxy_info = parse_proxy_link_enhanced(proxy_link)
+        if not proxy_info:
+            result["error"] = "فشل في تحليل رابط البروكسي"
+            result["status"] = "failed"
+            return result
+            
+        result["steps"].append(f"تم تحليل البروكسي: {proxy_info['server']}:{proxy_info['port']}")
+        
+        # خطوة 4: محاكاة إرسال رابط البروكسي لـ BotFather أو bot اختبار
+        result["steps"].append("محاكاة النقر على الرابط...")
+        
+        # خطوة 5: إنشاء اتصال جديد عبر البروكسي
+        result["steps"].append("إنشاء اتصال جديد عبر البروكسي")
+        await client.disconnect()
+        
+        # خطوة 6: إعادة الاتصال مع البروكسي الجديد
+        proxy_client = TelegramClient(
+            StringSession(session_str),
+            api_id=2040,
+            api_hash='b18441a1ff607e10fd989dcf492e8426',
+            connection=ConnectionTcpMTProxyRandomizedIntermediate,
+            proxy=(proxy_info["server"], proxy_info["port"], proxy_info["secret"]),
+            device_model='Desktop',
+            system_version='Windows 10',
+            app_version='Telegram Desktop',
+            lang_code='en',
+            timeout=20
+        )
+        
+        result["steps"].append("محاولة الاتصال عبر البروكسي الجديد")
+        start_time = time.time()
+        
+        await asyncio.wait_for(proxy_client.connect(), timeout=20)
+        connect_time = time.time() - start_time
+        
+        result["steps"].append(f"نجح الاتصال في {connect_time:.2f} ثانية")
+        
+        # خطوة 7: التحقق من صحة الاتصال
+        if await proxy_client.is_user_authorized():
+            me = await proxy_client.get_me()
+            result["steps"].append(f"تأكيد الهوية: {me.first_name}")
+            result["status"] = "success"
+            result["user_name"] = me.first_name
+            result["connect_time"] = connect_time
+        else:
+            result["error"] = "فشل في التحقق من الهوية عبر البروكسي"
+            result["status"] = "failed"
+            
+        await proxy_client.disconnect()
+        
+    except asyncio.TimeoutError:
+        result["error"] = "انتهت مهلة الاتصال"
+        result["status"] = "timeout"
+        result["steps"].append("انتهت مهلة الاتصال")
+    except Exception as e:
+        result["error"] = f"خطأ في المحاكاة: {str(e)}"
+        result["status"] = "failed"
+        result["steps"].append(f"خطأ: {str(e)}")
+        detailed_logger.error(f"خطأ في محاكاة النقر اليدوي: {e}")
+    finally:
+        if client and client.is_connected():
+            try:
+                await client.disconnect()
+            except:
+                pass
+                
+    return result
+
+async def test_all_proxies_manual_style(session_str: str, proxy_links: list) -> dict:
+    """اختبار جميع البروكسيات بالطريقة اليدوية"""
+    detailed_logger.info(f"🎯 بدء اختبار {len(proxy_links)} بروكسي بالطريقة اليدوية")
+    
+    results = {
+        "total_tested": len(proxy_links),
+        "successful": 0,
+        "failed": 0,
+        "timeout": 0,
+        "details": []
+    }
+    
+    for i, link in enumerate(proxy_links, 1):
+        detailed_logger.info(f"🔍 اختبار البروكسي {i}/{len(proxy_links)}")
+        
+        test_result = await simulate_manual_proxy_click(session_str, link)
+        results["details"].append(test_result)
+        
+        if test_result["status"] == "success":
+            results["successful"] += 1
+            detailed_logger.info(f"✅ البروكسي {i} نجح: {test_result.get('user_name', 'مجهول')}")
+        elif test_result["status"] == "timeout":
+            results["timeout"] += 1
+            detailed_logger.warning(f"⏱️ البروكسي {i} انتهت مهلته")
+        else:
+            results["failed"] += 1
+            detailed_logger.warning(f"❌ البروكسي {i} فشل: {test_result.get('error', 'غير محدد')}")
+            
+        # تأخير بسيط بين الاختبارات
+        if i < len(proxy_links):
+            await asyncio.sleep(2)
+    
+    detailed_logger.info(f"📊 انتهاء الاختبار اليدوي: {results['successful']} نجح، {results['failed']} فشل، {results['timeout']} انتهت مهلته")
+    return results

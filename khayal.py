@@ -57,7 +57,7 @@ from Telegram.report_mass import mass_report_conv
 
 # استيراد الدوال المشتركة المحدثة
 from Telegram.common import get_categories, get_accounts, cancel_operation
-from Telegram.common_improved import parse_proxy_link_enhanced as parse_proxy_link, enhanced_proxy_checker as proxy_checker, convert_secret_enhanced as convert_secret
+from Telegram.common_improved import parse_proxy_link_enhanced as parse_proxy_link, enhanced_proxy_checker as proxy_checker, convert_secret_enhanced as convert_secret, simulate_manual_proxy_click, test_all_proxies_manual_style
 from Telegram.common_improved import (
     run_enhanced_report_process,
     EnhancedProxyChecker,
@@ -190,14 +190,47 @@ async def process_proxy_option(update: Update, context: ContextTypes.DEFAULT_TYP
             "أرسل روابط بروكسي MTProto (كل رابط في سطر):\n\n"
             "📌 <i>مثال:</i>\n"
             "https://t.me/proxy?server=1.2.3.4&port=443&secret=ee...\n\n"
-            "⚠️ الحد الأقصى: 50 بروكسي",
+            "⚠️ الحد الأقصى: 50 بروكسي\n\n"
+            "🎯 <b>طرق الاختبار:</b>\n"
+            "• <b>عادي:</b> فحص فني سريع\n"
+            "• <b>يدوي:</b> محاكاة النقر على الرابط",
             parse_mode="HTML",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("إلغاء ❌", callback_data="cancel_setup")]])
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("فحص عادي 🔧", callback_data="proxy_method_normal")],
+                [InlineKeyboardButton("فحص يدوي 👆", callback_data="proxy_method_manual")],
+                [InlineKeyboardButton("إلغاء ❌", callback_data="cancel_setup")]
+            ])
         )
         return ENTER_PROXY_LINKS
         
     context.user_data['proxies'] = []
     return await select_method_menu(update, context, is_query=True)
+
+async def handle_proxy_method_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """معالجة اختيار طريقة فحص البروكسي"""
+    query = update.callback_query
+    await query.answer()
+    
+    if query.data == "proxy_method_normal":
+        context.user_data['proxy_test_method'] = 'normal'
+        method_name = "الفحص العادي 🔧"
+    elif query.data == "proxy_method_manual":
+        context.user_data['proxy_test_method'] = 'manual'
+        method_name = "الفحص اليدوي 👆"
+    else:
+        return await select_method_menu(update, context, is_query=True)
+    
+    await query.edit_message_text(
+        f"✅ تم اختيار: <b>{method_name}</b>\n\n"
+        "🌐 <b>أرسل روابط البروكسي الآن</b>\n\n"
+        "أرسل روابط بروكسي MTProto (كل رابط في سطر):\n\n"
+        "📌 <i>مثال:</i>\n"
+        "https://t.me/proxy?server=1.2.3.4&port=443&secret=ee...\n\n"
+        "⚠️ الحد الأقصى: 50 بروكسي",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("إلغاء ❌", callback_data="cancel_setup")]])
+    )
+    return ENTER_PROXY_LINKS
 
 async def process_proxy_links(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """معالجة روابط البروكسي مع النظام المحسن المطور"""
@@ -240,28 +273,63 @@ async def process_proxy_links(update: Update, context: ContextTypes.DEFAULT_TYPE
         input_links = input_links[:MAX_PROXIES]
         await update.message.reply_text(f"⚠️ تم تقليل عدد البروكسيات إلى {MAX_PROXIES} (الحد الأقصى)")
 
-    msg = await update.message.reply_text(f"🔍 جاري الفحص المحسن لـ {len(input_links)} بروكسي...")
+    # التحقق من طريقة الفحص المختارة
+    test_method = context.user_data.get('proxy_test_method', 'normal')
+    
+    if test_method == 'manual':
+        msg = await update.message.reply_text(f"👆 جاري الفحص اليدوي لـ {len(input_links)} بروكسي...")
+    else:
+        msg = await update.message.reply_text(f"🔍 جاري الفحص المحسن لـ {len(input_links)} بروكسي...")
 
-    # تحليل الروابط بالنظام المحسن
-    parsed_proxies = []
-    for link in input_links:
-        proxy_info = parse_proxy_link(link)
-        if proxy_info:
-            parsed_proxies.append(proxy_info)
-        else:
-            logger.warning(f"❌ رابط بروكسي غير صالح: {link}")
-            
-    if not parsed_proxies:
-        await msg.edit_text("❌ لم يتم العثور على أي روابط بروكسي صالحة.")
-        return await select_method_menu(update, context)
+    # تحليل الروابط بالنظام المحسن (للطريقة العادية فقط)
+    if test_method == 'normal':
+        parsed_proxies = []
+        for link in input_links:
+            proxy_info = parse_proxy_link(link)
+            if proxy_info:
+                parsed_proxies.append(proxy_info)
+            else:
+                logger.warning(f"❌ رابط بروكسي غير صالح: {link}")
+                
+        if not parsed_proxies:
+            await msg.edit_text("❌ لم يتم العثور على أي روابط بروكسي صالحة.")
+            return await select_method_menu(update, context)
         
-    # فحص البروكسيات بالنظام المحسن مع تتبع التقدم
+    # فحص البروكسيات بالطريقة المختارة
     if session_str:
         try:
-            await msg.edit_text(f"🔍 بدء الفحص العميق لـ {len(parsed_proxies)} بروكسي باستخدام الحساب المحدد...")
-            
-            # استخدام النظام المحسن للفحص المتوازي
-            valid_proxies = await proxy_checker.batch_check_proxies(session_str, parsed_proxies)
+            if test_method == 'manual':
+                await msg.edit_text(f"👆 بدء الفحص اليدوي لـ {len(input_links)} بروكسي...\n\n"
+                                   f"🎯 <b>طريقة المحاكاة:</b>\n"
+                                   f"• اتصال مباشر أولاً ✓\n"
+                                   f"• تحليل رابط البروكسي ✓\n"
+                                   f"• إعادة الاتصال عبر البروكسي ✓\n"
+                                   f"• التحقق من الهوية ✓", parse_mode="HTML")
+                
+                # استخدام الطريقة اليدوية
+                manual_results = await test_all_proxies_manual_style(session_str, input_links)
+                
+                # تحويل النتائج للتنسيق المتوقع
+                valid_proxies = []
+                for detail in manual_results["details"]:
+                    proxy_data = {
+                        "server": detail.get("link", "").split("server=")[1].split("&")[0] if "server=" in detail.get("link", "") else "unknown",
+                        "port": int(detail.get("link", "").split("port=")[1].split("&")[0]) if "port=" in detail.get("link", "") else 0,
+                        "secret": detail.get("link", "").split("secret=")[1].split("&")[0] if "secret=" in detail.get("link", "") else "",
+                        "status": "active" if detail["status"] == "success" else "failed",
+                        "error": detail.get("error", ""),
+                        "method": "manual_simulation",
+                        "connect_time": detail.get("connect_time", 0),
+                        "user_name": detail.get("user_name", ""),
+                        "steps": detail.get("steps", [])
+                    }
+                    valid_proxies.append(proxy_data)
+                    
+            else:
+                await msg.edit_text(f"🔍 بدء الفحص العميق لـ {len(parsed_proxies)} بروكسي باستخدام الحساب المحدد...")
+                
+                # استخدام النظام المحسن للفحص المتوازي
+                valid_proxies = await proxy_checker.batch_check_proxies(session_str, parsed_proxies)
         except Exception as e:
             logger.error(f"خطأ في فحص البروكسي: {e}")
             await msg.edit_text(f"❌ حدث خطأ في فحص البروكسي: {e}\nسيتم حفظ البروكسيات بدون فحص.")
@@ -423,6 +491,7 @@ def main() -> None:
             ],
             SELECT_PROXY_OPTION: [
                 CallbackQueryHandler(process_proxy_option, pattern='^(use_proxy|skip_proxy)$'),
+                CallbackQueryHandler(handle_proxy_method_selection, pattern='^proxy_method_(normal|manual)$'),
                 CallbackQueryHandler(choose_session_source, pattern='^back_to_cat_select$'),
             ],
             ENTER_PROXY_LINKS: [

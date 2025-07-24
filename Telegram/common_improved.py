@@ -58,7 +58,7 @@ if not detailed_logger.handlers:
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     handler.setFormatter(formatter)
     detailed_logger.addHandler(handler)
-    detailed_logger.setLevel(logging.INFO)
+    detailed_logger.setLevel(logging.DEBUG)
 
 # === الثوابت المحسنة ===
 PROXY_CHECK_TIMEOUT = getattr(enhanced_config.proxy if 'enhanced_config' in globals() else None, 'check_timeout', 25)
@@ -204,35 +204,46 @@ class EnhancedProxyChecker:
                 "retry_delay": 1
             }
             
-            # تحضير السر مع معالجة أفضل للأخطاء
+            # تحضير السر مع معالجة أفضل للأخطاء وتتبع مفصل
             secret = proxy_info["secret"]
+            detailed_logger.debug(f"🔍 معالجة السر: نوع={type(secret)}, قيمة={str(secret)[:30]}...")
             
             # معالجة شاملة لأنواع الأسرار المختلفة
             if isinstance(secret, bytes):
                 # السر موجود كـ bytes بالفعل
+                detailed_logger.debug("السر هو bytes بالفعل")
                 secret_bytes = secret
             elif isinstance(secret, str):
                 try:
                     # التحقق من صحة تنسيق السر
                     if len(secret) < 32 or len(secret) % 2 != 0:
                         raise ValueError("طول السر غير صالح")
+                    detailed_logger.debug(f"تحويل السر من str إلى bytes: {len(secret)} حرف")
                     secret_bytes = bytes.fromhex(secret)
+                    detailed_logger.debug(f"✅ تم التحويل بنجاح: {len(secret_bytes)} بايت")
                 except ValueError as e:
+                    detailed_logger.error(f"❌ فشل تحويل السر: {e}")
                     self._blacklist_proxy(proxy_info, f"سر غير صالح: {e}")
                     raise ProxyTestFailed(f"سر غير صالح: {secret}")
             else:
                 # نوع غير متوقع، محاولة تحويل
+                detailed_logger.warning(f"⚠️ نوع سر غير متوقع: {type(secret)}")
                 try:
                     secret_str = str(secret)
                     secret_bytes = bytes.fromhex(secret_str)
                 except Exception as e:
+                    detailed_logger.error(f"❌ فشل تحويل السر غير المتوقع: {e}")
                     self._blacklist_proxy(proxy_info, f"نوع سر غير مدعوم: {type(secret)}")
                     raise ProxyTestFailed(f"نوع سر غير مدعوم: {type(secret)}")
             
+            # تحويل secret_bytes إلى hex string للمكتبة Telethon
+            secret_hex = secret_bytes.hex() if isinstance(secret_bytes, bytes) else secret_bytes
+            detailed_logger.debug(f"🔍 نوع secret_bytes: {type(secret_bytes)}, نوع secret_hex: {type(secret_hex)}")
+            detailed_logger.debug(f"🔧 إعداد البروكسي: server={proxy_info['server']}, port={proxy_info['port']}, secret_type={type(secret_hex)}")
             params["proxy"] = (
                 proxy_info["server"],
                 proxy_info["port"],
-                secret_bytes
+                secret_hex  # استخدام hex string بدلاً من bytes
             )
             
             # اختبار الاتصال الأولي مع قياس الوقت
@@ -372,6 +383,9 @@ class EnhancedProxyChecker:
             })
             stats.update_stats(False, error=error_msg)
             logger.error(f"خطأ في فحص البروكسي {proxy_info['server']}: {e}")
+            # إضافة تتبع كامل للخطأ للتشخيص
+            import traceback
+            logger.error(f"تتبع الخطأ الكامل:\n{traceback.format_exc()}")
             
         finally:
             if client and client.is_connected():
@@ -1291,10 +1305,23 @@ async def process_enhanced_session(session: dict, targets: list, reports_per_acc
         }
         
         if current_proxy:
-            secret_bytes = bytes.fromhex(current_proxy["secret"])
+            # معالجة السر للتوافق مع Telethon
+            secret = current_proxy["secret"]
+            if isinstance(secret, bytes):
+                secret_hex = secret.hex()
+            elif isinstance(secret, str):
+                # التحقق من أنه hex string صالح
+                try:
+                    bytes.fromhex(secret)  # اختبار صحة hex
+                    secret_hex = secret
+                except ValueError:
+                    secret_hex = secret  # استخدام كما هو إذا لم يكن hex
+            else:
+                secret_hex = str(secret)
+                
             params.update({
                 "connection": ConnectionTcpMTProxyRandomizedIntermediate,
-                "proxy": (current_proxy["server"], current_proxy["port"], secret_bytes)
+                "proxy": (current_proxy["server"], current_proxy["port"], secret_hex)
             })
         
         # الاتصال

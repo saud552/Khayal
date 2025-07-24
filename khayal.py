@@ -56,10 +56,9 @@ from Telegram.report_sponsored import sponsored_report_conv
 from Telegram.report_mass import mass_report_conv
 
 # استيراد الدوال المشتركة المحدثة
-from Telegram.common import get_categories, get_accounts, parse_proxy_link, proxy_checker, cancel_operation, convert_secret
+from Telegram.common import get_categories, get_accounts, cancel_operation
+from Telegram.common_improved import parse_proxy_link_enhanced as parse_proxy_link, enhanced_proxy_checker as proxy_checker, convert_secret_enhanced as convert_secret
 from Telegram.common_improved import (
-    enhanced_proxy_checker, 
-    parse_proxy_link_enhanced, 
     run_enhanced_report_process,
     EnhancedProxyChecker,
     VerifiedReporter
@@ -242,7 +241,6 @@ async def process_proxy_links(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text(f"⚠️ تم تقليل عدد البروكسيات إلى {MAX_PROXIES} (الحد الأقصى)")
 
     msg = await update.message.reply_text(f"🔍 جاري الفحص المحسن لـ {len(input_links)} بروكسي...")
-    session_str = accounts[0]["session"]
 
     # تحليل الروابط بالنظام المحسن
     parsed_proxies = []

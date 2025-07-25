@@ -204,18 +204,15 @@ async def process_proxy_option(update: Update, context: ContextTypes.DEFAULT_TYP
         return ENTER_PROXY_LINKS
     else:
         context.user_data['proxies'] = []
-        await query.edit_message_text("✅ تم اختيار الاتصال المباشر")
-        # نحفظ البيانات ونعرض فئات الحسابات مباشرة
-        await choose_session_source(update, context)
-        return SELECT_CATEGORY
+        # عرض فئات الحسابات مباشرة بدون بروكسي
+        return await choose_session_source(update, context)
 
 async def process_proxy_links(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """معالجة بروكسيات Socks5 مع الفحص الفوري"""
     input_proxies = update.message.text.strip().splitlines()
     if not input_proxies:
         await update.message.reply_text("لم يتم إدخال أي بروكسيات.")
-        await choose_session_source(update, context)
-        return SELECT_CATEGORY
+        return await choose_session_source(update, context)
 
     # تطبيق الحد الأقصى للبروكسيات
     MAX_PROXIES = 50
@@ -236,8 +233,7 @@ async def process_proxy_links(update: Update, context: ContextTypes.DEFAULT_TYPE
             
     if not parsed_proxies:
         await msg.edit_text("❌ لم يتم العثور على أي بروكسيات صالحة.")
-        await choose_session_source(update, context)
-        return SELECT_CATEGORY
+        return await choose_session_source(update, context)
         
     # فحص البروكسيات فوراً بدون جلسات (فحص اتصال أساسي)
     try:
@@ -316,8 +312,7 @@ async def process_proxy_links(update: Update, context: ContextTypes.DEFAULT_TYPE
         context.user_data['proxies'] = []
     
     # الانتقال لاختيار الحسابات
-    await choose_session_source(update, context)
-    return SELECT_CATEGORY
+    return await choose_session_source(update, context)
 
 # ===================================================================
 #  دوال اختيار الحسابات
@@ -491,6 +486,10 @@ def main():
             SELECT_CATEGORY: [
                 CallbackQueryHandler(process_category_selection, pattern='^cat_'),
                 CallbackQueryHandler(back_to_proxy_setup, pattern='^back_to_proxy_setup$')
+            ],
+            SELECT_METHOD: [
+                # هذه الحالة تنتهي المحادثة وتنتقل للمعالجات الخارجية
+                # أزرار method_* يتم معالجتها بواسطة ConversationHandlers الأخرى
             ],
         },
         fallbacks=[

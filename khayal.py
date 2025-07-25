@@ -204,14 +204,17 @@ async def process_proxy_option(update: Update, context: ContextTypes.DEFAULT_TYP
     else:
         context.user_data['proxies'] = []
         await query.edit_message_text("✅ تم اختيار الاتصال المباشر")
-        return await choose_session_source(update, context)
+        # نحفظ البيانات ونعرض فئات الحسابات مباشرة
+        await choose_session_source(update, context)
+        return SELECT_CATEGORY
 
 async def process_proxy_links(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """معالجة بروكسيات Socks5 مع الفحص الفوري"""
     input_proxies = update.message.text.strip().splitlines()
     if not input_proxies:
         await update.message.reply_text("لم يتم إدخال أي بروكسيات.")
-        return await choose_session_source(update, context)
+        await choose_session_source(update, context)
+        return SELECT_CATEGORY
 
     # تطبيق الحد الأقصى للبروكسيات
     MAX_PROXIES = 50
@@ -232,7 +235,8 @@ async def process_proxy_links(update: Update, context: ContextTypes.DEFAULT_TYPE
             
     if not parsed_proxies:
         await msg.edit_text("❌ لم يتم العثور على أي بروكسيات صالحة.")
-        return await choose_session_source(update, context)
+        await choose_session_source(update, context)
+        return SELECT_CATEGORY
         
     # فحص البروكسيات فوراً بدون جلسات (فحص اتصال أساسي)
     try:
@@ -311,7 +315,8 @@ async def process_proxy_links(update: Update, context: ContextTypes.DEFAULT_TYPE
         context.user_data['proxies'] = []
     
     # الانتقال لاختيار الحسابات
-    return await choose_session_source(update, context)
+    await choose_session_source(update, context)
+    return SELECT_CATEGORY
 
 # ===================================================================
 #  دوال اختيار الحسابات
@@ -491,6 +496,8 @@ def main():
             CallbackQueryHandler(back_to_main_menu, pattern='^back_to_main_menu$'),
         ],
         per_user=True,
+        per_chat=False,
+        per_message=False,
     )
     
     # --- إضافة جميع المعالجات إلى التطبيق ---

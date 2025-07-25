@@ -524,13 +524,7 @@ def main() -> None:
         per_user=True,
     )
     
-    # --- معالج عام لتتبع جميع callbacks ---
-    async def debug_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        query = update.callback_query
-        logger.info(f"🐛 DEBUG: استقبال callback: {query.data} من المستخدم: {query.from_user.id}")
-        # لا نجيب على الـ callback هنا لأن المعالجات الأخرى ستفعل ذلك
-    
-    app.add_handler(CallbackQueryHandler(debug_callback_handler), group=10)  # مجموعة منخفضة الأولوية
+
     
     # --- إضافة جميع المعالجات إلى التطبيق ---
     app.add_handler(telegram_setup_conv)

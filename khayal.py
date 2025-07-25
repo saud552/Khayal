@@ -43,11 +43,13 @@ except ImportError:
     logging.warning("تحذير: لم يتم العثور على وحدة البريد الإلكتروني. سيتم تجاهل هذا القسم.")
     email_conv_handler = None
 
-try:
-    from Telegram.support_module import register_support_handlers
-except ImportError:
-    logging.warning("تحذير: لم يتم العثور على وحدة الدعم الخاص (support_module.py). سيتم تجاهلها.")
-    register_support_handlers = None
+# تعطيل support_module مؤقتاً لحل مشكلة التعليق
+# try:
+#     from Telegram.support_module import register_support_handlers
+# except ImportError:
+#     logging.warning("تحذير: لم يتم العثور على وحدة الدعم الخاص (support_module.py). سيتم تجاهلها.")
+register_support_handlers = None
+logging.info("ℹ️ تم تعطيل support_module مؤقتاً لحل مشكلة التعليق")
 
 from Telegram.report_peer import peer_report_conv
 from Telegram.report_message import message_report_conv
@@ -170,7 +172,7 @@ async def choose_session_source(update: Update, context: ContextTypes.DEFAULT_TY
     for cat_id, name, count in categories:
         keyboard.append([InlineKeyboardButton(f"{name} ({count} حساب)", callback_data=f"cat_{cat_id}")])
     
-    keyboard.append([InlineKeyboardButton("رجوع 🔙", callback_data="back_to_tg_menu")])
+    keyboard.append([InlineKeyboardButton("رجوع 🔙", callback_data="back_to_proxy_setup")])
     
     await query.edit_message_text(
         "📂 <b>الخطوة 2/3: اختيار فئة الحسابات</b>\n\n"
@@ -231,14 +233,11 @@ async def process_proxy_option(update: Update, context: ContextTypes.DEFAULT_TYP
     return await choose_session_source(update, context)
 
 async def process_proxy_links(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """معالجة بروكسيات Socks5 مع النظام المحسن"""
+    """معالجة بروكسيات Socks5 مع الفحص الفوري"""
     input_proxies = update.message.text.strip().splitlines()
     if not input_proxies:
         await update.message.reply_text("لم يتم إدخال أي بروكسيات.")
-        return await select_method_menu(update, context)
-
-    # حفظ البروكسيات لفحصها لاحقاً مع الحسابات
-    # لا نحتاج حسابات الآن لأننا سنختارها في الخطوة التالية
+        return await choose_session_source(update, context)
 
     # تطبيق الحد الأقصى للبروكسيات
     MAX_PROXIES = 50
@@ -246,35 +245,96 @@ async def process_proxy_links(update: Update, context: ContextTypes.DEFAULT_TYPE
         input_proxies = input_proxies[:MAX_PROXIES]
         await update.message.reply_text(f"⚠️ تم تقليل عدد البروكسيات إلى {MAX_PROXIES} (الحد الأقصى)")
 
-    msg = await update.message.reply_text(f"🔍 جاري التحقق من تنسيق {len(input_proxies)} بروكسي...")
+    msg = await update.message.reply_text(f"🔍 جاري فحص {len(input_proxies)} بروكسي Socks5...")
 
-    # تحليل البروكسيات والتحقق من التنسيق فقط
+    # تحليل البروكسيات
     parsed_proxies = []
-    invalid_count = 0
-    
     for proxy_line in input_proxies:
         proxy_info = parse_socks5_proxy(proxy_line.strip())
         if proxy_info:
             parsed_proxies.append(proxy_info)
         else:
-            invalid_count += 1
             logger.warning(f"❌ بروكسي غير صالح: {proxy_line}")
             
     if not parsed_proxies:
-        await msg.edit_text("❌ جميع البروكسيات بتنسيق غير صالح. يجب أن يكون التنسيق IP:PORT")
+        await msg.edit_text("❌ لم يتم العثور على أي بروكسيات صالحة.")
         return await choose_session_source(update, context)
         
-    # حفظ البروكسيات المُحللة لاستخدامها لاحقاً
-    context.user_data['proxies'] = parsed_proxies
-    
-    # عرض النتائج
-    await msg.edit_text(
-        f"✅ <b>تم حفظ البروكسيات</b>\n\n"
-        f"• صالحة: {len(parsed_proxies)}\n"
-        f"• غير صالحة: {invalid_count}\n\n"
-        f"سيتم فحص البروكسيات الصالحة عند اختيار الحسابات.",
-        parse_mode="HTML"
-    )
+    # فحص البروكسيات فوراً بدون جلسات (فحص اتصال أساسي)
+    try:
+        await msg.edit_text(f"🔍 بدء فحص {len(parsed_proxies)} بروكسي Socks5...")
+        
+        # فحص بسيط للبروكسيات بدون جلسات تليجرام
+        valid_proxies = []
+        failed_count = 0
+        
+        for proxy in parsed_proxies:
+            try:
+                import socks
+                import socket
+                import time
+                
+                # اختبار الاتصال البسيط
+                start_time = time.time()
+                
+                # إنشاء socket واختبار الاتصال
+                sock = socks.socksocket()
+                sock.set_proxy(socks.SOCKS5, proxy['host'], proxy['port'])
+                sock.settimeout(10)
+                
+                # محاولة الاتصال بـ Google DNS للاختبار
+                sock.connect(("8.8.8.8", 53))
+                ping = int((time.time() - start_time) * 1000)
+                sock.close()
+                
+                proxy['status'] = 'active'
+                proxy['ping'] = ping
+                valid_proxies.append(proxy)
+                
+            except Exception as e:
+                proxy['status'] = 'failed'
+                proxy['error'] = str(e)
+                failed_count += 1
+        
+        # عرض النتائج
+        active_count = len(valid_proxies)
+        total_checked = len(parsed_proxies)
+        
+        if not valid_proxies:
+            await msg.edit_text(
+                f"⚠️ <b>نتائج فحص Socks5</b>\n\n"
+                f"• تم فحص: {total_checked} بروكسي\n"
+                f"• نشط: {active_count}\n"
+                f"• فاشل: {failed_count}\n\n"
+                f"سيتم استخدام الاتصال المباشر.",
+                parse_mode="HTML"
+            )
+            context.user_data['proxies'] = []
+        else:
+            # ترتيب البروكسيات حسب السرعة
+            valid_proxies.sort(key=lambda x: x.get('ping', 9999))
+            best_details = "\n".join([
+                f"• {p['host']}:{p['port']} - ping: {p['ping']}ms"
+                for p in valid_proxies[:3]
+            ])
+            
+            await msg.edit_text(
+                f"✅ <b>نتائج فحص Socks5</b>\n\n"
+                f"• تم فحص: {total_checked} بروكسي\n"
+                f"• نشط: {active_count}\n"
+                f"• فاشل: {failed_count}\n"
+                f"• معدل النجاح: {(active_count/total_checked*100):.1f}%\n\n"
+                f"🏆 <b>أفضل البروكسيات:</b>\n{best_details}",
+                parse_mode="HTML"
+            )
+            
+            # حفظ البروكسيات النشطة
+            context.user_data['proxies'] = valid_proxies
+            
+    except Exception as e:
+        logger.error(f"خطأ في فحص البروكسيات: {e}")
+        await msg.edit_text("❌ حدث خطأ أثناء فحص البروكسيات.")
+        context.user_data['proxies'] = []
     
     # الانتقال لاختيار الحسابات
     return await choose_session_source(update, context)
@@ -321,6 +381,10 @@ async def cancel_setup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     await show_telegram_menu(update, context)
     return TELEGRAM_MENU
 
+async def back_to_proxy_setup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """الرجوع إلى إعداد البروكسي."""
+    return await start_proxy_setup(update, context)
+
 # ===================================================================
 # إعداد البوت
 # ===================================================================
@@ -344,20 +408,20 @@ def main() -> None:
         entry_points=[CallbackQueryHandler(show_telegram_menu, pattern='^main_telegram$')],
         states={
             TELEGRAM_MENU: [
-                CallbackQueryHandler(choose_session_source, pattern='^start_report_setup$'),
+                CallbackQueryHandler(start_proxy_setup, pattern='^start_proxy_setup$'),
                 CallbackQueryHandler(back_to_main_menu, pattern='^special_support$'),
-            ],
-            SELECT_CATEGORY: [
-                CallbackQueryHandler(process_category_selection, pattern='^cat_'),
-                CallbackQueryHandler(show_telegram_menu, pattern='^back_to_tg_menu$')
             ],
             SELECT_PROXY_OPTION: [
                 CallbackQueryHandler(process_proxy_option, pattern='^(use_proxy|skip_proxy)$'),
-                CallbackQueryHandler(choose_session_source, pattern='^back_to_cat_select$'),
+                CallbackQueryHandler(show_telegram_menu, pattern='^back_to_tg_menu$'),
             ],
             ENTER_PROXY_LINKS: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, process_proxy_links),
-                CallbackQueryHandler(show_telegram_menu, pattern='^back_to_proxy_option$')
+                CallbackQueryHandler(start_proxy_setup, pattern='^back_to_proxy_option$')
+            ],
+            SELECT_CATEGORY: [
+                CallbackQueryHandler(process_category_selection, pattern='^cat_'),
+                CallbackQueryHandler(start_proxy_setup, pattern='^back_to_proxy_setup$')
             ],
         },
         fallbacks=[

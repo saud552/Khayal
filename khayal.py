@@ -384,8 +384,9 @@ async def process_category_selection(update: Update, context: ContextTypes.DEFAU
     
     context.user_data['accounts'] = accounts
     
-    # الانتقال لقائمة طرق الإبلاغ
-    return await select_method_menu(update, context, is_query=True)
+    # عرض قائمة طرق الإبلاغ
+    await select_method_menu(update, context, is_query=True)
+    return ConversationHandler.END
 
 # ===================================================================
 #  دوال اختيار طريقة الإبلاغ

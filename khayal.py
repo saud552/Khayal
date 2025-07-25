@@ -116,21 +116,48 @@ async def show_telegram_menu(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await query.answer()
     
     keyboard = [
-        [InlineKeyboardButton("🏴‍☠ بدء عملية الإبلاغ", callback_data="start_report_setup")],
+        [InlineKeyboardButton("🏴‍☠ بدء عملية الإبلاغ", callback_data="start_proxy_setup")],
         [InlineKeyboardButton("🛠 الدعم الخاص", callback_data="special_support")],
         [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data="back_to_main_menu")]
     ]
     
     await query.edit_message_text(
         "📢 <b>قسم بلاغات تيليجرام</b>\n\n"
+        "🔥 <b>نظام البروكسي الجديد:</b>\n"
+        "• ✅ دعم Socks5\n"
+        "• ❌ إزالة MTProto\n"
+        "• 🚀 أداء محسن\n\n"
         "اختر الإجراء الذي تريد تنفيذه:",
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
     return TELEGRAM_MENU
 
+async def start_proxy_setup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """الخطوة 1: اختيار نوع البروكسي قبل تحميل الحسابات."""
+    query = update.callback_query
+    await query.answer()
+    
+    keyboard = [
+        [InlineKeyboardButton("📡 استخدام بروكسي Socks5", callback_data="use_proxy")],
+        [InlineKeyboardButton("⏭️ تخطي (اتصال مباشر)", callback_data="skip_proxy")],
+        [InlineKeyboardButton("🔙 رجوع", callback_data="back_to_tg_menu")]
+    ]
+    
+    await query.edit_message_text(
+        "🌐 <b>الخطوة 1/3: إعداد البروكسي</b>\n\n"
+        "🔄 <b>النظام الجديد - Socks5:</b>\n"
+        "• تنسيق بسيط: IP:PORT\n"
+        "• فحص تلقائي للجودة\n"
+        "• أداء أفضل من MTProto\n\n"
+        "هل تريد استخدام بروكسيات Socks5؟",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return SELECT_PROXY_OPTION
+
 async def choose_session_source(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """الخطوة 1: تطلب من المستخدم اختيار فئة الحسابات."""
+    """الخطوة 2: تطلب من المستخدم اختيار فئة الحسابات (بعد إعداد البروكسي)."""
     query = update.callback_query
     await query.answer()
     
@@ -146,7 +173,8 @@ async def choose_session_source(update: Update, context: ContextTypes.DEFAULT_TY
     keyboard.append([InlineKeyboardButton("رجوع 🔙", callback_data="back_to_tg_menu")])
     
     await query.edit_message_text(
-        "📂 <b>الخطوة 1/3: اختيار فئة الحسابات</b>\n\n"
+        "📂 <b>الخطوة 2/3: اختيار فئة الحسابات</b>\n\n"
+        "✅ تم إعداد البروكسي بنجاح\n\n"
         "اختر الفئة التي تحتوي على الحسابات التي تريد استخدامها:",
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(keyboard)
@@ -200,7 +228,7 @@ async def process_proxy_option(update: Update, context: ContextTypes.DEFAULT_TYP
         return ENTER_PROXY_LINKS
         
     context.user_data['proxies'] = []
-    return await select_method_menu(update, context, is_query=True)
+    return await choose_session_source(update, context)
 
 async def process_proxy_links(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """معالجة بروكسيات Socks5 مع النظام المحسن"""
@@ -209,10 +237,8 @@ async def process_proxy_links(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text("لم يتم إدخال أي بروكسيات.")
         return await select_method_menu(update, context)
 
-    accounts = context.user_data.get("accounts")
-    if not accounts:
-        await update.message.reply_text("❌ خطأ: لا توجد حسابات للتحقق من البروكسيات.")
-        return ConversationHandler.END
+    # حفظ البروكسيات لفحصها لاحقاً مع الحسابات
+    # لا نحتاج حسابات الآن لأننا سنختارها في الخطوة التالية
 
     # تطبيق الحد الأقصى للبروكسيات
     MAX_PROXIES = 50
@@ -220,91 +246,44 @@ async def process_proxy_links(update: Update, context: ContextTypes.DEFAULT_TYPE
         input_proxies = input_proxies[:MAX_PROXIES]
         await update.message.reply_text(f"⚠️ تم تقليل عدد البروكسيات إلى {MAX_PROXIES} (الحد الأقصى)")
 
-    msg = await update.message.reply_text(f"🔍 جاري فحص {len(input_proxies)} بروكسي Socks5...")
-    session_str = accounts[0]["session"]
+    msg = await update.message.reply_text(f"🔍 جاري التحقق من تنسيق {len(input_proxies)} بروكسي...")
 
-    # تحليل البروكسيات
+    # تحليل البروكسيات والتحقق من التنسيق فقط
     parsed_proxies = []
+    invalid_count = 0
+    
     for proxy_line in input_proxies:
         proxy_info = parse_socks5_proxy(proxy_line.strip())
         if proxy_info:
             parsed_proxies.append(proxy_info)
         else:
+            invalid_count += 1
             logger.warning(f"❌ بروكسي غير صالح: {proxy_line}")
             
     if not parsed_proxies:
-        await msg.edit_text("❌ لم يتم العثور على أي بروكسيات صالحة.")
-        return await select_method_menu(update, context)
+        await msg.edit_text("❌ جميع البروكسيات بتنسيق غير صالح. يجب أن يكون التنسيق IP:PORT")
+        return await choose_session_source(update, context)
         
-    # فحص البروكسيات
-    try:
-        await msg.edit_text(f"🔍 بدء فحص {len(parsed_proxies)} بروكسي Socks5...")
-        
-        # استخدام نظام فحص Socks5
-        valid_proxies = await socks5_proxy_checker.batch_check_proxies(session_str, parsed_proxies)
-        
-        # تصفية البروكسيات النشطة
-        active_proxies = [p for p in valid_proxies if p.get('status') == 'active']
-        failed_proxies = [p for p in valid_proxies if p.get('status') != 'active']
-        
-        # إحصائيات
-        total_checked = len(valid_proxies)
-        active_count = len(active_proxies)
-        failed_count = len(failed_proxies)
-        
-        # تسجيل النتائج
-        for proxy in active_proxies:
-            logger.info(f"✅ بروكسي نشط: {proxy['host']}:{proxy['port']} - ping: {proxy.get('ping', 0)}ms")
-        
-        for proxy in failed_proxies:
-            logger.warning(f"❌ بروكسي فاشل: {proxy['host']}:{proxy['port']} - السبب: {proxy.get('error', 'غير محدد')}")
-            
-    except Exception as e:
-        logger.error(f"خطأ في فحص البروكسيات: {e}")
-        await msg.edit_text("❌ حدث خطأ أثناء فحص البروكسيات.")
-        return await select_method_menu(update, context)
-
-    # عرض النتائج
-    if not active_proxies:
-        await msg.edit_text(
-            f"⚠️ <b>نتائج الفحص</b>\n\n"
-            f"• تم فحص: {total_checked} بروكسي\n"
-            f"• نشط: {active_count}\n"
-            f"• فاشل: {failed_count}\n\n"
-            f"سيتم استخدام الاتصال المباشر.",
-            parse_mode="HTML"
-        )
-        context.user_data['proxies'] = []
-    else:
-        # الحصول على أفضل البروكسيات
-        best_proxies = socks5_proxy_checker.get_best_proxies(active_proxies, 3)
-        best_proxy = best_proxies[0] if best_proxies else None
-        
-        # تفاصيل أفضل البروكسيات
-        best_details = "\n".join([
-            f"• {p['host']}:{p['port']} - ping: {p.get('ping', 0)}ms"
-            for p in best_proxies[:3]
-        ])
-        
-        await msg.edit_text(
-            f"✅ <b>نتائج فحص Socks5</b>\n\n"
-            f"• تم فحص: {total_checked} بروكسي\n"
-            f"• نشط: {active_count}\n"
-            f"• فاشل: {failed_count}\n"
-            f"• معدل النجاح: {(active_count/total_checked*100):.1f}%\n\n"
-            f"🏆 <b>أفضل البروكسيات:</b>\n{best_details}",
-            parse_mode="HTML"
-        )
-        
-        # حفظ البروكسيات النشطة مرتبة حسب الجودة
-        context.user_data['proxies'] = active_proxies
+    # حفظ البروكسيات المُحللة لاستخدامها لاحقاً
+    context.user_data['proxies'] = parsed_proxies
     
-    return await select_method_menu(update, context)
+    # عرض النتائج
+    await msg.edit_text(
+        f"✅ <b>تم حفظ البروكسيات</b>\n\n"
+        f"• صالحة: {len(parsed_proxies)}\n"
+        f"• غير صالحة: {invalid_count}\n\n"
+        f"سيتم فحص البروكسيات الصالحة عند اختيار الحسابات.",
+        parse_mode="HTML"
+    )
+    
+    # الانتقال لاختيار الحسابات
+    return await choose_session_source(update, context)
 
 async def select_method_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, is_query=False) -> int:
     """الخطوة 3: تعرض قائمة طرق الإبلاغ ثم تنهي محادثة الإعداد."""
     text = (
         "🛠️ <b>الخطوة 3/3: اختيار طريقة الإبلاغ</b>\n\n"
+        "✅ تم إعداد البروكسي والحسابات بنجاح\n\n"
         "اختر طريقة الإبلاغ التي تناسبك:"
     )
     keyboard = [

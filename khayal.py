@@ -385,6 +385,14 @@ async def back_to_proxy_setup(update: Update, context: ContextTypes.DEFAULT_TYPE
     """الرجوع إلى إعداد البروكسي."""
     return await start_proxy_setup(update, context)
 
+async def back_to_tg_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """الرجوع إلى قائمة تيليجرام."""
+    return await show_telegram_menu(update, context)
+
+async def back_to_proxy_option(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """الرجوع إلى خيارات البروكسي."""
+    return await start_proxy_setup(update, context)
+
 # ===================================================================
 # إعداد البوت
 # ===================================================================
@@ -399,7 +407,6 @@ def main() -> None:
     # --- معالج البدء الرئيسي ---
     logger.info("📱 إضافة معالجات أساسية...")
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(back_to_main_menu, pattern='^back_to_main_menu$'))
     logger.info("✅ تم إضافة المعالجات الأساسية")
 
     # --- معالج قسم تيليجرام (الإعداد الأولي) ---
@@ -413,15 +420,15 @@ def main() -> None:
             ],
             SELECT_PROXY_OPTION: [
                 CallbackQueryHandler(process_proxy_option, pattern='^(use_proxy|skip_proxy)$'),
-                CallbackQueryHandler(show_telegram_menu, pattern='^back_to_tg_menu$'),
+                CallbackQueryHandler(back_to_tg_menu, pattern='^back_to_tg_menu$'),
             ],
             ENTER_PROXY_LINKS: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, process_proxy_links),
-                CallbackQueryHandler(start_proxy_setup, pattern='^back_to_proxy_option$')
+                CallbackQueryHandler(back_to_proxy_option, pattern='^back_to_proxy_option$')
             ],
             SELECT_CATEGORY: [
                 CallbackQueryHandler(process_category_selection, pattern='^cat_'),
-                CallbackQueryHandler(start_proxy_setup, pattern='^back_to_proxy_setup$')
+                CallbackQueryHandler(back_to_proxy_setup, pattern='^back_to_proxy_setup$')
             ],
         },
         fallbacks=[
@@ -467,6 +474,11 @@ def main() -> None:
         logger.info("✅ تم إضافة معالجات الدعم")
     else:
         logger.info("ℹ️ معالجات الدعم غير متاحة")
+    
+    # --- إضافة المعالجات العامة في النهاية ---
+    logger.info("🔧 إضافة المعالجات العامة...")
+    app.add_handler(CallbackQueryHandler(back_to_main_menu, pattern='^back_to_main_menu$'))
+    logger.info("✅ تم إضافة المعالجات العامة")
     
     logger.info("🎉 اكتمل تحميل جميع المعالجات!")
     logger.info("🚀 البوت جاهز ويبدأ التشغيل...")

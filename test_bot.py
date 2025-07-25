@@ -1,134 +1,178 @@
 #!/usr/bin/env python3
 """
-نسخة مبسطة من البوت للاختبار السريع
+بوت اختبار بسيط لاختبار النظام الجديد
 """
 
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram.ext import (
+    ApplicationBuilder, 
+    CommandHandler, 
+    CallbackQueryHandler, 
+    ContextTypes,
+    ConversationHandler,
+    MessageHandler,
+    filters
+)
 
 # إعداد التسجيل
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
 logger = logging.getLogger(__name__)
 
-# إعدادات البوت من config.py
-BOT_TOKEN = '7557280783:AAF44S35fdkcURM4j4Rp5-OOkASZ3_uCSR4'
-OWNER_ID = 985612253
+# إعدادات البوت
+BOT_TOKEN = "7889053107:AAHKl67qfVMcnO1ywXBo9VyMqMxpDVfStUo"
+OWNER_ID = 5097637407
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """دالة /start"""
-    user_id = update.effective_user.id
-    
-    if user_id != OWNER_ID:
-        await update.message.reply_text("⛔ هذا البوت خاص بالمالك فقط.")
+# الحالات
+TELEGRAM_MENU, SELECT_PROXY_OPTION, ENTER_PROXY_LINKS = range(3)
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """القائمة الرئيسية"""
+    user = update.effective_user
+    if user.id != OWNER_ID:
+        await update.message.reply_text("❌ هذا البوت مخصص للمالك فقط.")
         return
-    
+
     keyboard = [
-        [InlineKeyboardButton("🛠️ إعداد التليجرام", callback_data="setup_telegram")],
-        [InlineKeyboardButton("📧 إعداد البريد الإلكتروني", callback_data="setup_email")],
-        [InlineKeyboardButton("🔧 الدعم الخاص", callback_data="private_support")]
+        [InlineKeyboardButton("📢 قسم بلاغات تيليجرام", callback_data="main_telegram")]
     ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
     
     await update.message.reply_text(
-        "🎯 <b>مرحباً بك في بوت الإبلاغ المطور</b>\n\n"
-        "🔥 <b>النظام الجديد يدعم:</b>\n"
-        "• بروكسيات Socks5 (بدلاً من MTProto)\n"
-        "• تحليل IP:PORT مباشر\n"
-        "• فحص متطور للجودة\n\n"
-        "اختر الخدمة المطلوبة:",
-        parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        "👋 أهلاً بك! اختر القسم:",
+        reply_markup=reply_markup
     )
 
-async def setup_telegram(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """إعداد التليجرام مع نظام Socks5"""
+async def show_telegram_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """قائمة تيليجرام"""
     query = update.callback_query
     await query.answer()
     
     keyboard = [
-        [InlineKeyboardButton("📡 استخدام بروكسي Socks5", callback_data="use_socks5")],
-        [InlineKeyboardButton("⏭️ تخطي (اتصال مباشر)", callback_data="skip_proxy")],
-        [InlineKeyboardButton("🏠 القائمة الرئيسية", callback_data="main_menu")]
+        [InlineKeyboardButton("🏴‍☠ بدء عملية الإبلاغ", callback_data="start_proxy_setup")],
+        [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data="back_to_main")]
     ]
     
     await query.edit_message_text(
-        "🌐 <b>إعداد نظام البروكسي الجديد</b>\n\n"
-        "🔄 <b>تم التحديث:</b>\n"
-        "• ❌ إزالة نظام MTProto القديم\n"
-        "• ✅ تفعيل نظام Socks5 الجديد\n"
-        "• 🚀 أداء أفضل وأكثر استقراراً\n\n"
-        "هل تريد استخدام بروكسيات Socks5؟",
+        "📢 <b>قسم بلاغات تيليجرام</b>\n\nاختر الإجراء:",
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
+    return TELEGRAM_MENU
 
-async def use_socks5(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """طلب بروكسيات Socks5"""
+async def start_proxy_setup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """إعداد البروكسي"""
     query = update.callback_query
     await query.answer()
+    
+    keyboard = [
+        [InlineKeyboardButton("📡 استخدام بروكسي Socks5", callback_data="use_proxy")],
+        [InlineKeyboardButton("⏭️ تخطي", callback_data="skip_proxy")],
+        [InlineKeyboardButton("🔙 رجوع", callback_data="back_to_tg")]
+    ]
     
     await query.edit_message_text(
-        "🌐 <b>إدخال بروكسيات Socks5</b>\n\n"
-        "أرسل بروكسيات Socks5 (كل بروكسي في سطر):\n\n"
-        "📌 <b>التنسيق الجديد:</b>\n"
-        "<code>159.203.61.169:1080\n"
-        "96.126.96.163:9090\n"
-        "139.59.1.14:1080</code>\n\n"
-        "⚠️ الحد الأقصى: 50 بروكسي\n"
-        "✅ سيتم فحصها تلقائياً",
-        parse_mode="HTML"
+        "🌐 <b>الخطوة 1: إعداد البروكسي</b>\n\nاختر نوع البروكسي:",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
+    return SELECT_PROXY_OPTION
 
-async def skip_proxy(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """تخطي البروكسي"""
+async def process_proxy_option(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """معالجة خيار البروكسي"""
     query = update.callback_query
     await query.answer()
     
-    await query.edit_message_text(
-        "✅ <b>تم اختيار الاتصال المباشر</b>\n\n"
-        "🔥 النظام جاهز للاستخدام!\n"
-        "سيتم استخدام الاتصال المباشر بدون بروكسي.\n\n"
-        "💡 يمكنك إضافة بروكسيات Socks5 لاحقاً لتحسين الأداء.",
-        parse_mode="HTML"
-    )
-
-async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالج الأزرار"""
-    query = update.callback_query
-    await query.answer()
-    
-    if query.data == "setup_telegram":
-        await setup_telegram(update, context)
-    elif query.data == "use_socks5":
-        await use_socks5(update, context)
-    elif query.data == "skip_proxy":
-        await skip_proxy(update, context)
-    elif query.data == "main_menu":
-        await start(update, context)
-    else:
+    if query.data == "use_proxy":
         await query.edit_message_text(
-            f"🔧 <b>قيد التطوير</b>\n\n"
-            f"الوظيفة '{query.data}' قيد التطوير.\n"
-            f"✅ نظام Socks5 جاهز للاختبار!",
+            "📡 <b>إدخال بروكسيات Socks5</b>\n\n"
+            "أرسل البروكسيات بالتنسيق التالي:\n"
+            "<code>IP:PORT</code>\n\n"
+            "مثال:\n"
+            "<code>192.168.1.1:1080</code>",
             parse_mode="HTML"
         )
+        return ENTER_PROXY_LINKS
+    else:
+        await query.edit_message_text("✅ تم تخطي البروكسي! سيتم استخدام الاتصال المباشر.")
+        return ConversationHandler.END
+
+async def process_proxy_links(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """معالجة البروكسيات"""
+    proxies = update.message.text.strip().splitlines()
+    
+    await update.message.reply_text(
+        f"✅ تم استلام {len(proxies)} بروكسي!\n"
+        f"سيتم فحصها الآن..."
+    )
+    
+    # محاكاة فحص البروكسيات
+    await update.message.reply_text(
+        "🎉 <b>نتائج الفحص:</b>\n"
+        f"• تم فحص: {len(proxies)}\n"
+        f"• نشط: {max(1, len(proxies)//2)}\n"
+        f"• فاشل: {len(proxies)//2}",
+        parse_mode="HTML"
+    )
+    
+    return ConversationHandler.END
+
+async def back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """العودة للقائمة الرئيسية"""
+    query = update.callback_query
+    await query.answer()
+    
+    keyboard = [
+        [InlineKeyboardButton("📢 قسم بلاغات تيليجرام", callback_data="main_telegram")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        "👋 القائمة الرئيسية:",
+        reply_markup=reply_markup
+    )
+
+async def back_to_tg(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """العودة لقائمة تيليجرام"""
+    return await show_telegram_menu(update, context)
 
 def main():
-    """تشغيل البوت"""
-    print("🚀 بدء تشغيل البوت المحدث...")
+    """الدالة الرئيسية"""
+    logger.info("🚀 بدء تشغيل بوت الاختبار...")
     
-    # إنشاء التطبيق
-    app = Application.builder().token(BOT_TOKEN).build()
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
     
-    # إضافة المعالجات
+    # المعالجات الأساسية
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(callback_handler))
+    app.add_handler(CallbackQueryHandler(back_to_main, pattern='^back_to_main$'))
     
-    print("✅ البوت جاهز ويعمل...")
-    print("🔗 رابط البوت: @AAAK6BOT")
-    print("🎯 اختبر نظام Socks5 الجديد!")
+    # ConversationHandler
+    conv_handler = ConversationHandler(
+        entry_points=[CallbackQueryHandler(show_telegram_menu, pattern='^main_telegram$')],
+        states={
+            TELEGRAM_MENU: [
+                CallbackQueryHandler(start_proxy_setup, pattern='^start_proxy_setup$'),
+            ],
+            SELECT_PROXY_OPTION: [
+                CallbackQueryHandler(process_proxy_option, pattern='^(use_proxy|skip_proxy)$'),
+                CallbackQueryHandler(back_to_tg, pattern='^back_to_tg$'),
+            ],
+            ENTER_PROXY_LINKS: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, process_proxy_links),
+            ],
+        },
+        fallbacks=[
+            CallbackQueryHandler(back_to_main, pattern='^back_to_main$'),
+        ],
+        per_user=True,
+    )
     
-    # تشغيل البوت
+    app.add_handler(conv_handler)
+    
+    logger.info("✅ البوت جاهز!")
     app.run_polling()
 
 if __name__ == '__main__':

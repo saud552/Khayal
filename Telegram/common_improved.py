@@ -898,7 +898,7 @@ async def process_enhanced_session(session: dict, targets: list, reports_per_acc
         # اختيار أفضل بروكسي
         if proxies:
             current_proxy = random.choice(proxies)
-            detailed_logger.info(f"🔗 استخدام البروكسي {current_proxy['server']} للحساب {session_id}")
+            detailed_logger.info(f"🔗 استخدام البروكسي {current_proxy['host']}:{current_proxy['port']} للحساب {session_id}")
         
         # إعداد العميل
         params = {
@@ -911,11 +911,12 @@ async def process_enhanced_session(session: dict, targets: list, reports_per_acc
         }
         
         if current_proxy:
-            secret_bytes = bytes.fromhex(current_proxy["secret"])
+            # إعداد بروكسي Socks5 مع telethon
+            import socks
             params.update({
-                "connection": ConnectionTcpMTProxyRandomizedIntermediate,
-                "proxy": (current_proxy["server"], current_proxy["port"], secret_bytes)
+                "proxy": (socks.SOCKS5, current_proxy["host"], current_proxy["port"])
             })
+            detailed_logger.info(f"🔗 إعداد بروكسي Socks5: {current_proxy['host']}:{current_proxy['port']}")
         
         # الاتصال
         client = TelegramClient(StringSession(session_str), **params)

@@ -89,7 +89,8 @@ logger = logging.getLogger(__name__)
     SELECT_PROXY_OPTION,
     ENTER_PROXY_LINKS,
     SELECT_CATEGORY,
-) = range(4)
+    SELECT_METHOD,
+) = range(5)
 
 # ===================================================================
 #  دوال القائمة الرئيسية والبدء
@@ -384,9 +385,9 @@ async def process_category_selection(update: Update, context: ContextTypes.DEFAU
     
     context.user_data['accounts'] = accounts
     
-    # عرض قائمة طرق الإبلاغ
+    # عرض قائمة طرق الإبلاغ والانتقال لحالة اختيار الطريقة
     await select_method_menu(update, context, is_query=True)
-    return ConversationHandler.END
+    return SELECT_METHOD
 
 # ===================================================================
 #  دوال اختيار طريقة الإبلاغ

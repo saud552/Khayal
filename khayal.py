@@ -348,13 +348,19 @@ async def cancel_setup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 
 def main() -> None:
     """إعداد وتشغيل البوت."""
+    logger.info("🚀 بدء تشغيل البوت الأساسي...")
+    logger.info("🤖 إنشاء تطبيق البوت...")
     app = ApplicationBuilder().token(BOT_TOKEN).build()
+    logger.info("✅ تم إنشاء التطبيق بنجاح")
 
     # --- معالج البدء الرئيسي ---
+    logger.info("📱 إضافة معالجات أساسية...")
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(back_to_main_menu, pattern='^back_to_main_menu$'))
+    logger.info("✅ تم إضافة المعالجات الأساسية")
 
     # --- معالج قسم تيليجرام (الإعداد الأولي) ---
+    logger.info("🛠️ إعداد معالج التليجرام...")
     telegram_setup_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(show_telegram_menu, pattern='^main_telegram$')],
         states={
@@ -385,21 +391,45 @@ def main() -> None:
     )
     
     # --- إضافة جميع المعالجات إلى التطبيق ---
+    logger.info("🔧 إضافة معالج إعداد التليجرام...")
     app.add_handler(telegram_setup_conv)
+    logger.info("✅ تم إضافة معالج التليجرام")
     
+    logger.info("📧 فحص معالج البريد الإلكتروني...")
     if email_conv_handler: 
         app.add_handler(email_conv_handler)
+        logger.info("✅ تم إضافة معالج البريد الإلكتروني")
+    else:
+        logger.info("ℹ️ معالج البريد الإلكتروني غير متاح")
     
+    logger.info("📋 إضافة معالجات التقارير...")
     app.add_handler(peer_report_conv)
-    app.add_handler(message_report_conv)
-    app.add_handler(photo_report_conv)
-    app.add_handler(sponsored_report_conv)
-    app.add_handler(mass_report_conv)
+    logger.info("✅ معالج تقارير الأشخاص")
     
+    app.add_handler(message_report_conv)
+    logger.info("✅ معالج تقارير الرسائل")
+    
+    app.add_handler(photo_report_conv)
+    logger.info("✅ معالج تقارير الصور")
+    
+    app.add_handler(sponsored_report_conv)
+    logger.info("✅ معالج التقارير المدعومة")
+    
+    app.add_handler(mass_report_conv)
+    logger.info("✅ معالج التقارير الجماعية")
+    
+    logger.info("🔧 إضافة معالجات الدعم...")
     if register_support_handlers: 
         register_support_handlers(app)
+        logger.info("✅ تم إضافة معالجات الدعم")
+    else:
+        logger.info("ℹ️ معالجات الدعم غير متاحة")
     
-    logger.info("Bot is running...")
+    logger.info("🎉 اكتمل تحميل جميع المعالجات!")
+    logger.info("🚀 البوت جاهز ويبدأ التشغيل...")
+    logger.info("🔗 رابط البوت: @AAAK6BOT")
+    logger.info("✅ نظام Socks5 محمل وجاهز للاختبار")
+    
     app.run_polling()
 
 if __name__ == '__main__':

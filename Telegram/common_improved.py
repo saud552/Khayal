@@ -1506,40 +1506,85 @@ async def simulate_manual_proxy_click(session_str: str, proxy_link: str) -> dict
         result["steps"].append("إنشاء اتصال جديد عبر البروكسي")
         await client.disconnect()
         
-        # خطوة 6: إعادة الاتصال مع البروكسي الجديد
+        # خطوة 6: إعادة الاتصال مع البروكسي الجديد (محاكاة أفضل للنقر اليدوي)
         proxy_client = TelegramClient(
             StringSession(session_str),
             api_id=2040,
             api_hash='b18441a1ff607e10fd989dcf492e8426',
             connection=ConnectionTcpMTProxyRandomizedIntermediate,
             proxy=(proxy_info["server"], proxy_info["port"], proxy_info["secret"]),
-            device_model='Desktop',
-            system_version='Windows 10',
-            app_version='Telegram Desktop',
-            lang_code='en',
-            timeout=20
+            device_model='iPhone 12',  # تغيير لمحاكاة أفضل
+            system_version='iOS 15.0',
+            app_version='8.8.0',
+            lang_code='ar',
+            timeout=30,  # زيادة المهلة
+            connection_retries=2,  # إضافة محاولات إعادة
+            auto_reconnect=False
         )
         
         result["steps"].append("محاولة الاتصال عبر البروكسي الجديد")
         start_time = time.time()
         
-        await asyncio.wait_for(proxy_client.connect(), timeout=20)
-        connect_time = time.time() - start_time
-        
-        result["steps"].append(f"نجح الاتصال في {connect_time:.2f} ثانية")
-        
-        # خطوة 7: التحقق من صحة الاتصال
-        if await proxy_client.is_user_authorized():
-            me = await proxy_client.get_me()
-            result["steps"].append(f"تأكيد الهوية: {me.first_name}")
-            result["status"] = "success"
-            result["user_name"] = me.first_name
-            result["connect_time"] = connect_time
-        else:
-            result["error"] = "فشل في التحقق من الهوية عبر البروكسي"
-            result["status"] = "failed"
+        try:
+            await asyncio.wait_for(proxy_client.connect(), timeout=25)
+            connect_time = time.time() - start_time
             
-        await proxy_client.disconnect()
+            result["steps"].append(f"نجح الاتصال في {connect_time:.2f} ثانية")
+            
+            # خطوة 7: التحقق من صحة الاتصال
+            if await proxy_client.is_user_authorized():
+                me = await proxy_client.get_me()
+                result["steps"].append(f"تأكيد الهوية: {me.first_name}")
+                result["status"] = "success"
+                result["user_name"] = me.first_name
+                result["connect_time"] = connect_time
+            else:
+                result["error"] = "فشل في التحقق من الهوية عبر البروكسي"
+                result["status"] = "failed"
+                
+            await proxy_client.disconnect()
+            
+        except (asyncio.TimeoutError, Exception) as e:
+            # المحاولة الثانية بإعدادات Android
+            result["steps"].append("المحاولة الأولى فشلت، جاري المحاولة الثانية بإعدادات Android...")
+            await proxy_client.disconnect()
+            
+            proxy_client2 = TelegramClient(
+                StringSession(session_str),
+                api_id=2040,
+                api_hash='b18441a1ff607e10fd989dcf492e8426',
+                connection=ConnectionTcpMTProxyRandomizedIntermediate,
+                proxy=(proxy_info["server"], proxy_info["port"], proxy_info["secret"]),
+                device_model='Samsung Galaxy S21',
+                system_version='Android 11',
+                app_version='7.9.0',
+                lang_code='en',
+                timeout=25,
+                connection_retries=1,
+                auto_reconnect=False
+            )
+            
+            try:
+                await asyncio.wait_for(proxy_client2.connect(), timeout=20)
+                connect_time = time.time() - start_time
+                
+                result["steps"].append(f"نجح الاتصال مع Android في {connect_time:.2f} ثانية")
+                
+                if await proxy_client2.is_user_authorized():
+                    me = await proxy_client2.get_me()
+                    result["steps"].append(f"تأكيد الهوية مع Android: {me.first_name}")
+                    result["status"] = "success"
+                    result["user_name"] = me.first_name
+                    result["connect_time"] = connect_time
+                else:
+                    result["error"] = "فشل في التحقق من الهوية مع Android"
+                    result["status"] = "failed"
+                    
+                await proxy_client2.disconnect()
+                
+            except Exception as e2:
+                result["steps"].append(f"فشلت المحاولة الثانية أيضاً: {str(e2)}")
+                raise e  # إثارة الخطأ الأصلي
         
     except asyncio.TimeoutError:
         result["error"] = "انتهت مهلة الاتصال"

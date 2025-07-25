@@ -28,7 +28,7 @@ from telegram.ext import (
 )
 from telethon import TelegramClient
 from telethon.sessions import StringSession
-from telethon.network import ConnectionTcpMTProxyRandomizedIntermediate
+# Removed MTProto proxy import - now using Socks5
 
 # --- استيراد الإعدادات الأساسية ---
 try:
@@ -56,12 +56,12 @@ from Telegram.report_sponsored import sponsored_report_conv
 from Telegram.report_mass import mass_report_conv
 
 # استيراد الدوال المشتركة المحدثة
-from Telegram.common import get_categories, get_accounts, parse_proxy_link, proxy_checker, cancel_operation, convert_secret
+from Telegram.common import get_categories, get_accounts, cancel_operation
 from Telegram.common_improved import (
-    enhanced_proxy_checker, 
-    parse_proxy_link_enhanced, 
+    socks5_proxy_checker, 
+    parse_socks5_proxy, 
     run_enhanced_report_process,
-    EnhancedProxyChecker,
+    Socks5ProxyChecker,
     VerifiedReporter
 )
 from config_enhanced import enhanced_config
@@ -187,10 +187,12 @@ async def process_proxy_option(update: Update, context: ContextTypes.DEFAULT_TYP
     
     if query.data == "use_proxy":
         await query.edit_message_text(
-            "🌐 <b>إدخال روابط البروكسي</b>\n\n"
-            "أرسل روابط بروكسي MTProto (كل رابط في سطر):\n\n"
+            "🌐 <b>إدخال بروكسيات Socks5</b>\n\n"
+            "أرسل بروكسيات Socks5 (كل بروكسي في سطر):\n\n"
             "📌 <i>مثال:</i>\n"
-            "https://t.me/proxy?server=1.2.3.4&port=443&secret=ee...\n\n"
+            "159.203.61.169:1080\n"
+            "96.126.96.163:9090\n"
+            "139.59.1.14:1080\n\n"
             "⚠️ الحد الأقصى: 50 بروكسي",
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("إلغاء ❌", callback_data="cancel_setup")]])
@@ -201,10 +203,10 @@ async def process_proxy_option(update: Update, context: ContextTypes.DEFAULT_TYP
     return await select_method_menu(update, context, is_query=True)
 
 async def process_proxy_links(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """معالجة روابط البروكسي مع النظام المحسن المطور"""
-    input_links = update.message.text.strip().splitlines()
-    if not input_links:
-        await update.message.reply_text("لم يتم إدخال أي روابط.")
+    """معالجة بروكسيات Socks5 مع النظام المحسن"""
+    input_proxies = update.message.text.strip().splitlines()
+    if not input_proxies:
+        await update.message.reply_text("لم يتم إدخال أي بروكسيات.")
         return await select_method_menu(update, context)
 
     accounts = context.user_data.get("accounts")
@@ -213,68 +215,56 @@ async def process_proxy_links(update: Update, context: ContextTypes.DEFAULT_TYPE
         return ConversationHandler.END
 
     # تطبيق الحد الأقصى للبروكسيات
-    MAX_PROXIES = enhanced_config.proxy.quality_threshold or 50
-    if len(input_links) > MAX_PROXIES:
-        input_links = input_links[:MAX_PROXIES]
+    MAX_PROXIES = 50
+    if len(input_proxies) > MAX_PROXIES:
+        input_proxies = input_proxies[:MAX_PROXIES]
         await update.message.reply_text(f"⚠️ تم تقليل عدد البروكسيات إلى {MAX_PROXIES} (الحد الأقصى)")
 
-    msg = await update.message.reply_text(f"🔍 جاري الفحص المحسن لـ {len(input_links)} بروكسي...")
+    msg = await update.message.reply_text(f"🔍 جاري فحص {len(input_proxies)} بروكسي Socks5...")
     session_str = accounts[0]["session"]
 
-    # تحليل الروابط بالنظام المحسن
+    # تحليل البروكسيات
     parsed_proxies = []
-    for link in input_links:
-        proxy_info = parse_proxy_link_enhanced(link)
+    for proxy_line in input_proxies:
+        proxy_info = parse_socks5_proxy(proxy_line.strip())
         if proxy_info:
             parsed_proxies.append(proxy_info)
         else:
-            logger.warning(f"❌ رابط بروكسي غير صالح: {link}")
+            logger.warning(f"❌ بروكسي غير صالح: {proxy_line}")
             
     if not parsed_proxies:
-        await msg.edit_text("❌ لم يتم العثور على أي روابط بروكسي صالحة.")
+        await msg.edit_text("❌ لم يتم العثور على أي بروكسيات صالحة.")
         return await select_method_menu(update, context)
         
-    # فحص البروكسيات بالنظام المحسن مع تتبع التقدم
+    # فحص البروكسيات
     try:
-        await msg.edit_text(f"🔍 بدء الفحص العميق لـ {len(parsed_proxies)} بروكسي...")
+        await msg.edit_text(f"🔍 بدء فحص {len(parsed_proxies)} بروكسي Socks5...")
         
-        # استخدام النظام المحسن للفحص المتوازي
-        valid_proxies = await enhanced_proxy_checker.batch_check_proxies(session_str, parsed_proxies)
+        # استخدام نظام فحص Socks5
+        valid_proxies = await socks5_proxy_checker.batch_check_proxies(session_str, parsed_proxies)
         
-        # تصفية البروكسيات النشطة وترتيبها حسب الجودة
+        # تصفية البروكسيات النشطة
         active_proxies = [p for p in valid_proxies if p.get('status') == 'active']
         failed_proxies = [p for p in valid_proxies if p.get('status') != 'active']
         
-        # إحصائيات مفصلة
+        # إحصائيات
         total_checked = len(valid_proxies)
         active_count = len(active_proxies)
         failed_count = len(failed_proxies)
         
-        # تسجيل النتائج المفصلة
+        # تسجيل النتائج
         for proxy in active_proxies:
-            logger.info(f"✅ بروكسي نشط: {proxy['server']} - جودة: {proxy.get('quality_score', 0)}% - ping: {proxy.get('ping', 0)}ms")
+            logger.info(f"✅ بروكسي نشط: {proxy['host']}:{proxy['port']} - ping: {proxy.get('ping', 0)}ms")
         
         for proxy in failed_proxies:
-            logger.warning(f"❌ بروكسي فاشل: {proxy['server']} - السبب: {proxy.get('error', 'غير محدد')}")
+            logger.warning(f"❌ بروكسي فاشل: {proxy['host']}:{proxy['port']} - السبب: {proxy.get('error', 'غير محدد')}")
             
     except Exception as e:
-        logger.error(f"خطأ في النظام المحسن لفحص البروكسيات: {e}")
-        await msg.edit_text("❌ حدث خطأ في النظام المحسن. جاري التراجع للنظام القديم...")
-        
-        # التراجع للنظام القديم في حالة الخطأ
-        valid_proxies = []
-        for link in input_links:
-            proxy_info = parse_proxy_link(link)
-            if not proxy_info: 
-                continue
-            try:
-                checked_proxy = await proxy_checker.check_proxy(session_str, proxy_info)
-                if checked_proxy.get("status") == "active":
-                    valid_proxies.append(checked_proxy)
-            except Exception as fallback_error:
-                logger.error(f"خطأ في النظام القديم أيضاً: {fallback_error}")
+        logger.error(f"خطأ في فحص البروكسيات: {e}")
+        await msg.edit_text("❌ حدث خطأ أثناء فحص البروكسيات.")
+        return await select_method_menu(update, context)
 
-    # عرض النتائج المحسنة
+    # عرض النتائج
     if not active_proxies:
         await msg.edit_text(
             f"⚠️ <b>نتائج الفحص</b>\n\n"
@@ -287,17 +277,17 @@ async def process_proxy_links(update: Update, context: ContextTypes.DEFAULT_TYPE
         context.user_data['proxies'] = []
     else:
         # الحصول على أفضل البروكسيات
-        best_proxies = enhanced_proxy_checker.get_best_proxies(active_proxies, 3)
+        best_proxies = socks5_proxy_checker.get_best_proxies(active_proxies, 3)
         best_proxy = best_proxies[0] if best_proxies else None
         
         # تفاصيل أفضل البروكسيات
         best_details = "\n".join([
-            f"• {p['server']} - جودة: {p.get('quality_score', 0)}% - {p.get('ping', 0)}ms"
+            f"• {p['host']}:{p['port']} - ping: {p.get('ping', 0)}ms"
             for p in best_proxies[:3]
         ])
         
         await msg.edit_text(
-            f"✅ <b>نتائج الفحص المحسن</b>\n\n"
+            f"✅ <b>نتائج فحص Socks5</b>\n\n"
             f"• تم فحص: {total_checked} بروكسي\n"
             f"• نشط: {active_count}\n"
             f"• فاشل: {failed_count}\n"

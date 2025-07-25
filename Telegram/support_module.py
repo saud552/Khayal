@@ -2,7 +2,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackQueryHandler, MessageHandler, ConversationHandler, CommandHandler, filters, ContextTypes
 from telethon import TelegramClient
 from telethon.sessions import StringSession
-from telethon.network import ConnectionTcpMTProxyRandomizedIntermediate
+# Removed MTProto proxy import - now using Socks5
 from telethon.errors import AuthKeyDuplicatedError
 import os
 import asyncio
@@ -426,17 +426,22 @@ async def do_session_support(session_data, contact, cfg, context):
     connected = False
     proxies = cfg.get("proxies", [])
 
-    # محاولة الاتصال عبر البروكسيات إن وجدت
+    # محاولة الاتصال عبر بروكسيات Socks5 إن وجدت
     for proxy in proxies:
         if not context.user_data.get("active", True):
             return
         try:
+            import socks
+            import socket
+            
+            # إعداد البروكسي Socks5
+            socks.set_default_proxy(socks.SOCKS5, proxy["host"], proxy["port"])
+            socket.socket = socks.socksocket
+            
             client = TelegramClient(
                 StringSession(session_data['session_str']),
                 API_ID,
                 API_HASH,
-                connection=ConnectionTcpMTProxyRandomizedIntermediate,
-                proxy=(proxy["server"], proxy["port"], proxy["secret"]),
                 auto_reconnect=True,
                 connection_retries=5,
                 retry_delay=5
@@ -444,12 +449,27 @@ async def do_session_support(session_data, contact, cfg, context):
             await client.connect()
             if not await client.is_user_authorized():
                 await client.disconnect()
+                # إعادة تعيين الإعدادات
+                socks.set_default_proxy()
+                import socket as original_socket
+                socket.socket = original_socket.socket
                 return
             connected = True
             break
         except AuthKeyDuplicatedError:
+            # إعادة تعيين الإعدادات عند الخطأ
+            socks.set_default_proxy()
+            import socket as original_socket
+            socket.socket = original_socket.socket
             return
         except Exception:
+            # إعادة تعيين الإعدادات عند الخطأ
+            try:
+                socks.set_default_proxy()
+                import socket as original_socket
+                socket.socket = original_socket.socket
+            except:
+                pass
             if client:
                 try: 
                     await client.disconnect()
@@ -498,7 +518,13 @@ async def do_session_support(session_data, contact, cfg, context):
             if i < cfg.get("count", 0) - 1:
                 await asyncio.sleep(cfg.get("delay", 0))
     finally:
-        # قطع الاتصال بعد الانتهاء
+        # إعادة تعيين إعدادات البروكسي وقطع الاتصال
+        try:
+            socks.set_default_proxy()
+            import socket as original_socket
+            socket.socket = original_socket.socket
+        except:
+            pass
         try:
             await client.disconnect()
         except:

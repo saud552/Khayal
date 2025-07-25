@@ -21,7 +21,7 @@ from telethon.errors import (
     SessionPasswordNeededError,
     RPCError  
 )
-from telethon.network import ConnectionTcpMTProxyRandomizedIntermediate
+# Removed MTProto proxy import - now using Socks5
 from telethon.sessions import StringSession
 from encryption import decrypt_session
 from config import API_ID, API_HASH
@@ -142,129 +142,72 @@ def get_accounts(category_id):
     
     return accounts
 
-def parse_proxy_link(link: str) -> dict | None:
+def parse_socks5_proxy(proxy_string: str) -> dict | None:
     """
-    يحلل رابط بروكسي MTProto من نوع tg://proxy أو https://t.me/proxy ويستخرج المضيف والمنفذ والسرّ.
-    يدعم المفاتيح الهكسية (مع بادئة dd أو ee أو بدونها) والمشفّرة بـ base64 URL-safe.
+    يحلل بروكسي Socks5 من صيغة IP:PORT
     """
     try:
-        parsed = urlparse(link)
-        params = parse_qs(parsed.query)
-
-        # محاولة استخراج المعلمات من query string
-        server = params.get('server', [''])[0]
-        port = params.get('port', [''])[0]
-        secret = params.get('secret', [''])[0]
-
-        # إذا لم تُعثر المعلمات في query، حاول من المسار
-        if not server or not port or not secret:
-            path_parts = parsed.path.lstrip('/').split('/')
-            if len(path_parts) >= 3:
-                server = path_parts[0]
-                port = path_parts[1]
-                secret = '/'.join(path_parts[2:])
-
-        if not server or not port or not secret:
-            # رابط غير صالح
+        proxy_string = proxy_string.strip()
+        if ':' not in proxy_string:
             return None
-
-        server = server.strip()
-        port = int(port)
-        secret = secret.strip()
-
-        # تحويل السر إلى تنسيق سداسي ثابت
-        hex_secret = convert_secret(secret)
-        if not hex_secret:
-            return None
-
-        return {'server': server, 'port': port, 'secret': hex_secret, 'format': 'hex'}
-    except Exception as e:
-        logger.error(f"خطأ في تحليل رابط البروكسي: {e}")
-        return None
-        
-def convert_secret(secret: str) -> str | None:
-    """
-    يحول سلسلة السرّ إلى تمثيل هكس ثابت (32-64 حرفًا أو أكثر).
-    يدعم الصيغ الهكسية ونصوص base64 URL-safe.
-    """
-    secret = secret.strip()
-
-    # إزالة أي أحرف غير سداسية
-    clean_secret = re.sub(r'[^A-Fa-f0-9]', '', secret)
-    
-    # إذا كان السرّ نص هكس (مجموعة [0-9A-Fa-f] فقط بطول زوجي)
-    if re.fullmatch(r'[A-Fa-f0-9]+', clean_secret) and len(clean_secret) % 2 == 0:
-        return clean_secret.lower()  # نعيدها بالصيغة العادية (أحرف صغيرة)
-    
-    # محاولة فك base64 URL-safe
-    try:
-        # إزالة البادئات الشائعة (ee, dd)
-        if secret.startswith(('ee', 'dd')):
-            secret = secret[2:]
             
-        # إضافة الحشو المفقود
-        cleaned = secret.replace('-', '+').replace('_', '/')
-        padding = '=' * (-len(cleaned) % 4)
-        decoded = base64.b64decode(cleaned + padding)
+        parts = proxy_string.split(':')
+        if len(parts) != 2:
+            return None
+            
+        host = parts[0].strip()
+        port = int(parts[1].strip())
         
-        # التحويل إلى سلسلة سداسية (hex string)
-        return decoded.hex()
+        if not host or port <= 0 or port > 65535:
+            return None
+            
+        return {'host': host, 'port': port, 'type': 'socks5'}
     except Exception as e:
-        logger.error(f"خطأ في تحويل السر: {e}")
+        logger.error(f"خطأ في تحليل بروكسي Socks5: {e}")
         return None
 
-# --- نظام فحص وتدوير البروكسي ---
-class ProxyChecker:
+def validate_socks5_proxy(proxy_info: dict) -> bool:
+    """
+    يتحقق من صحة معلومات بروكسي Socks5
+    """
+    if not isinstance(proxy_info, dict):
+        return False
+        
+    if 'host' not in proxy_info or 'port' not in proxy_info:
+        return False
+        
+    try:
+        port = int(proxy_info['port'])
+        return 1 <= port <= 65535 and len(proxy_info['host'].strip()) > 0
+    except (ValueError, TypeError):
+        return False
+
+# --- نظام فحص بروكسي Socks5 ---
+class Socks5ProxyChecker:
     def __init__(self):
         self.proxy_stats = {}
         self.check_intervals = [5, 10, 15, 30, 60]  # ثواني بين الفحوصات
-
+        
     async def check_proxy(self, session_str: str, proxy_info: dict) -> dict:
-        """فحص جودة البروكسي مع دعم السرود 32/64 حرفًا"""
+        """فحص بروكسي Socks5"""
+        import socks
+        import socket
+        
         start_time = time.time()
         client = None
         result = proxy_info.copy()
         
         try:
+            # إعداد البروكسي في النظام
+            socks.set_default_proxy(socks.SOCKS5, proxy_info['host'], proxy_info['port'])
+            socket.socket = socks.socksocket
+            
             # إعداد معلمات العميل
             params = {
                 "api_id": API_ID,
                 "api_hash": API_HASH,
                 "timeout": 10,
-                "connection": ConnectionTcpMTProxyRandomizedIntermediate,
             }
-            
-            # معالجة السر - يجب أن يكون في تنسيق سداسي
-            secret = proxy_info["secret"]
-            
-            # تأكد أن السر هو سلسلة نصية (str)
-            if isinstance(secret, bytes):
-                try:
-                    secret = secret.decode('utf-8')
-                except UnicodeDecodeError:
-                    # إذا فشل التحويل، نستخدم التمثيل السداسي للبايتات
-                    secret = secret.hex()
-            
-            # تحويل السر إلى بايتات
-            try:
-                secret_bytes = bytes.fromhex(secret)
-            except ValueError:
-                logger.error(f"❌ سر البروكسي غير صالح: {secret}")
-                result.update({
-                    "ping": 0,
-                    "response_time": 0,
-                    "last_check": int(time.time()),
-                    "status": "invalid_secret",
-                    "error": "تنسيق سر غير صالح"
-                })
-                return result
-            
-            # إنشاء كائن البروكسي المناسب
-            params["proxy"] = (
-                proxy_info["server"],
-                proxy_info["port"],
-                secret_bytes
-            )
             
             # إنشاء العميل والتوصيل
             client = TelegramClient(StringSession(session_str), **params)
@@ -273,7 +216,7 @@ class ProxyChecker:
             # قياس سرعة الاتصال
             connect_time = time.time() - start_time
             
-            # فحص فعالية البروكسي بمحاولة جلب معلومات بسيطة
+            # فحص فعالية البروكسي
             start_req = time.time()
             await client.get_me()
             response_time = time.time() - start_req
@@ -285,14 +228,6 @@ class ProxyChecker:
                 "status": "active"
             })
             
-        except RPCError as e:
-            result.update({
-                "ping": 0,
-                "response_time": 0,
-                "last_check": int(time.time()),
-                "status": "connection_error",
-                "error": str(e)
-            })
         except Exception as e:
             result.update({
                 "ping": 0,
@@ -302,17 +237,18 @@ class ProxyChecker:
                 "error": str(e)
             })
         finally:
+            # إعادة تعيين الإعدادات
+            socks.set_default_proxy()
+            import socket as original_socket
+            socket.socket = original_socket.socket
+            
             if client and client.is_connected():
                 await client.disconnect()
         
         # تحديث إحصائيات البروكسي
-        self.proxy_stats[proxy_info["server"]] = result
+        proxy_key = f"{proxy_info['host']}:{proxy_info['port']}"
+        self.proxy_stats[proxy_key] = result
         return result
-
-    @staticmethod
-    def parse_proxy_link(link: str) -> dict | None:
-        """استدعاء الدالة المركزية لتحليل روابط البروكسي"""
-        return parse_proxy_link(link)
 
     def get_best_proxy(self, proxies: list) -> dict:
         """الحصول على أفضل بروكسي بناءً على الإحصائيات"""
@@ -362,7 +298,7 @@ class ProxyChecker:
         return current_proxy if current_proxy else active_proxies[0]
 
 # إنشاء نسخة عامة من مدقق البروكسي
-proxy_checker = ProxyChecker()
+socks5_proxy_checker = Socks5ProxyChecker()
 
 # --- الفئة الأساسية المحسنة لتنفيذ البلاغات ---
 class AdvancedReporter:
@@ -579,7 +515,7 @@ async def do_session_report(session_data: dict, config: dict, context: ContextTy
     
     while retry_count < max_retries and context.user_data.get("active", True):
         # تدوير البروكسي
-        current_proxy = proxy_checker.rotate_proxy(proxies, current_proxy)
+        current_proxy = socks5_proxy_checker.rotate_proxy(proxies, current_proxy)
         
         try:
             # إعداد معلمات العميل
@@ -593,36 +529,19 @@ async def do_session_report(session_data: dict, config: dict, context: ContextTy
             }
             
             if current_proxy:
-                # السر في قاعدة البيانات هو سلسلة هكس (تم تحويله مسبقًا)
-                secret_hex = current_proxy["secret"]
-                
-                # تأكد أن السر هو سلسلة نصية (str)
-                if isinstance(secret_hex, bytes):
-                    try:
-                        secret_hex = secret_hex.decode('utf-8')
-                    except UnicodeDecodeError:
-                        # إذا فشل التحويل، نستخدم التمثيل السداسي للبايتات
-                        secret_hex = secret_hex.hex()
+                # إعداد بروكسي Socks5
+                import socks
+                import socket
                 
                 try:
-                    # تحويل السر السداسي إلى بايتات
-                    secret_bytes = bytes.fromhex(secret_hex)
-                except ValueError:
-                    logger.error(f"❌ سر البروكسي غير صالح: {secret_hex}")
-                    current_proxy['status'] = 'invalid_secret'
+                    socks.set_default_proxy(socks.SOCKS5, current_proxy['host'], current_proxy['port'])
+                    socket.socket = socks.socksocket
+                    logger.info(f"Using Socks5 proxy: {current_proxy['host']}:{current_proxy['port']}")
+                except Exception as e:
+                    logger.error(f"❌ خطأ في إعداد بروكسي Socks5: {e}")
+                    current_proxy['status'] = 'invalid_proxy'
                     retry_count += 1
                     continue
-                
-                # إنشاء كائن البروكسي
-                params.update({
-                    "connection": ConnectionTcpMTProxyRandomizedIntermediate,
-                    "proxy": (
-                        current_proxy["server"],
-                        current_proxy["port"],
-                        secret_bytes
-                    )
-                })
-                logger.info(f"Using proxy: {current_proxy['server']} (converted secret)")
             
             client = TelegramClient(StringSession(session_str), **params)
             await client.connect()
@@ -682,6 +601,15 @@ async def do_session_report(session_data: dict, config: dict, context: ContextTy
             logger.error(f"❌ خطأ فادح في جلسة: {e}", exc_info=True)
             break
         finally:
+            # إعادة تعيين إعدادات البروكسي Socks5
+            try:
+                import socks
+                socks.set_default_proxy()
+                import socket as original_socket
+                socket.socket = original_socket.socket
+            except:
+                pass
+            
             if client and client.is_connected():
                 await client.disconnect()
 
@@ -745,8 +673,8 @@ async def run_report_process(update: Update, context: ContextTypes.DEFAULT_TYPE)
                         await asyncio.sleep(30)
                         current_proxies = config.get("proxies", [])
                         for proxy in current_proxies:
-                            if proxy_checker.needs_check(proxy):
-                                updated = await proxy_checker.check_proxy(sessions[0]["session"], proxy)
+                            if socks5_proxy_checker.needs_check(proxy):
+                                updated = await socks5_proxy_checker.check_proxy(sessions[0]["session"], proxy)
                                 proxy.update(updated)
                     except asyncio.CancelledError:
                         logger.info("تم إلغاء مهمة مراقبة البروكسي")

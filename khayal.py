@@ -512,6 +512,7 @@ def main() -> None:
             ],
             ENTER_PROXY_LINKS: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, process_proxy_links),
+                CallbackQueryHandler(handle_proxy_method_selection, pattern='^proxy_method_(normal|manual)$'),
                 CallbackQueryHandler(show_telegram_menu, pattern='^back_to_proxy_option$')
             ],
         },

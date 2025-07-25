@@ -370,7 +370,7 @@ async def process_category_selection(update: Update, context: ContextTypes.DEFAU
     query = update.callback_query
     await query.answer()
     
-    category_id = int(query.data.split('_')[1])
+    category_id = query.data.split('_')[1]  # قد يكون UUID أو رقم
     context.user_data['selected_category'] = category_id
     
     accounts = get_accounts(category_id)

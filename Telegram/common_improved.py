@@ -783,40 +783,73 @@ async def run_enhanced_report_process(update: Update, context: ContextTypes.DEFA
         }
     })
     
-    # فحص البروكسيات أولاً
+    # استخدام البروكسيات المفحوصة مسبقاً (تم فحصها في khayal.py)
     if proxies:
-        progress_msg = await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text="🔍 جاري فحص البروكسيات بشكل مفصل..."
-        )
-        
-        # استخدام أول جلسة للفحص
-        test_session = sessions[0]["session"]
-        checked_proxies = await socks5_proxy_checker.batch_check_proxies(test_session, proxies)
-        
-        active_proxies = [p for p in checked_proxies if p.get('status') == 'active']
-        
-        if not active_proxies:
-            await progress_msg.edit_text(
-                "❌ لا توجد بروكسيات Socks5 نشطة. سيتم استخدام الاتصال المباشر."
-            )
-            config["proxies"] = []
+        # التحقق من أن البروكسيات تحتوي على معلومات الفحص المسبق
+        if isinstance(proxies, list) and len(proxies) > 0 and 'status' in proxies[0]:
+            # البروكسيات مفحوصة مسبقاً - استخدامها مباشرة
+            active_proxies = [p for p in proxies if p.get('status') == 'active']
+            
+            if active_proxies:
+                proxy_summary = "\n".join([
+                    f"• {p['host']}:{p['port']} - ping: {p.get('ping', 'N/A')}ms"
+                    for p in active_proxies[:3]
+                ])
+                
+                progress_msg = await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text=f"✅ <b>استخدام البروكسيات المفحوصة</b>\n"
+                         f"• نشط: {len(active_proxies)} بروكسي\n\n"
+                         f"🏆 <b>أفضل البروكسيات:</b>\n{proxy_summary}",
+                    parse_mode="HTML"
+                )
+                
+                config["proxies"] = active_proxies
+                detailed_logger.info(f"✅ تم تحميل {len(active_proxies)} بروكسي مفحوص مسبقاً")
+                
+                for proxy in active_proxies:
+                    detailed_logger.info(f"✅ بروكسي Socks5 نشط: {proxy['host']}:{proxy['port']} - ping: {proxy.get('ping', 'N/A')}ms")
+                
+                await asyncio.sleep(2)
+            else:
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text="❌ لا توجد بروكسيات نشطة من الفحص المسبق. سيتم استخدام الاتصال المباشر."
+                )
+                config["proxies"] = []
         else:
-            best_proxies = socks5_proxy_checker.get_best_proxies(active_proxies, 5)
-            config["proxies"] = best_proxies
-            
-            proxy_summary = "\n".join([
-                f"• {p['host']}:{p['port']} - ping: {p['ping']}ms"
-                for p in best_proxies[:3]
-            ])
-            
-            await progress_msg.edit_text(
-                f"✅ تم فحص البروكسيات\n"
-                f"نشط: {len(active_proxies)}/{len(proxies)}\n\n"
-                f"أفضل البروكسيات:\n{proxy_summary}"
+            # فحص البروكسيات إذا لم تكن مفحوصة مسبقاً (احتياطي)
+            progress_msg = await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="🔍 جاري فحص البروكسيات بشكل مفصل..."
             )
             
-            await asyncio.sleep(2)
+            test_session = sessions[0]["session"]
+            checked_proxies = await socks5_proxy_checker.batch_check_proxies(test_session, proxies)
+            
+            active_proxies = [p for p in checked_proxies if p.get('status') == 'active']
+            
+            if not active_proxies:
+                await progress_msg.edit_text(
+                    "❌ لا توجد بروكسيات Socks5 نشطة. سيتم استخدام الاتصال المباشر."
+                )
+                config["proxies"] = []
+            else:
+                best_proxies = socks5_proxy_checker.get_best_proxies(active_proxies, 5)
+                config["proxies"] = best_proxies
+                
+                proxy_summary = "\n".join([
+                    f"• {p['host']}:{p['port']} - ping: {p['ping']}ms"
+                    for p in best_proxies[:3]
+                ])
+                
+                await progress_msg.edit_text(
+                    f"✅ تم فحص البروكسيات\n"
+                    f"نشط: {len(active_proxies)}/{len(proxies)}\n\n"
+                    f"أفضل البروكسيات:\n{proxy_summary}"
+                )
+                
+                await asyncio.sleep(2)
     
     # بدء عملية الإبلاغ المحسنة
     try:

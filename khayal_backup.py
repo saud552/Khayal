@@ -1,4 +1,4 @@
-# DrKhayal/khayal.py - نسخة منظمة
+# DrKhayal/khayal.py
 
 import sys
 import os
@@ -13,10 +13,8 @@ from urllib.parse import urlparse, parse_qs
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
+# ===================================================================
 
-# ===================================================================
-#  استيراد مكتبات Telegram
-# ===================================================================
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.error import BadRequest
 from telegram.ext import (
@@ -30,10 +28,7 @@ from telegram.ext import (
 )
 from telethon import TelegramClient
 from telethon.sessions import StringSession
-
-# ===================================================================
-#  استيراد الإعدادات والوحدات
-# ===================================================================
+# Removed MTProto proxy import - now using Socks5
 
 # --- استيراد الإعدادات الأساسية ---
 try:
@@ -41,15 +36,14 @@ try:
 except ImportError:
     logging.error("خطأ: لم يتم العثور على ملف config.py أو أنه ناقص. يجب أن يحتوي على: BOT_TOKEN, OWNER_ID, DB_PATH, API_ID, API_HASH")
     exit(1)
-
-# --- استيراد معالجات البريد الإلكتروني ---
+# --- استيراد معالجات المحادثة من الوحدات المنفصلة ---
 try:
     from Email.Email_reports import email_conv_handler
 except ImportError:
     logging.warning("تحذير: لم يتم العثور على وحدة البريد الإلكتروني. سيتم تجاهل هذا القسم.")
     email_conv_handler = None
 
-# --- استيراد معالجات الدعم (معطل مؤقتاً) ---
+# تعطيل support_module مؤقتاً لحل مشكلة التعليق
 # try:
 #     from Telegram.support_module import register_support_handlers
 # except ImportError:
@@ -57,14 +51,13 @@ except ImportError:
 register_support_handlers = None
 logging.info("ℹ️ تم تعطيل support_module مؤقتاً لحل مشكلة التعليق")
 
-# --- استيراد معالجات تقارير تيليجرام ---
 from Telegram.report_peer import peer_report_conv
 from Telegram.report_message import message_report_conv
 from Telegram.report_photo import photo_report_conv
 from Telegram.report_sponsored import sponsored_report_conv
 from Telegram.report_mass import mass_report_conv
 
-# --- استيراد الدوال المشتركة ---
+# استيراد الدوال المشتركة المحدثة
 from Telegram.common import get_categories, get_accounts, cancel_operation
 from Telegram.common_improved import (
     socks5_proxy_checker, 
@@ -75,25 +68,20 @@ from Telegram.common_improved import (
 )
 from config_enhanced import enhanced_config
 
-# ===================================================================
-#  إعداد التسجيل
-# ===================================================================
+# تقليل مستوى تسجيل telethon لتجنب الرسائل غير الضرورية
 logging.getLogger('telethon').setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
-# ===================================================================
-#  تعريف حالات المحادثة
-# ===================================================================
+# --- حالات المحادثة للملف الرئيسي (للإعداد الأولي) ---
 (
     TELEGRAM_MENU,
+    SELECT_CATEGORY,
     SELECT_PROXY_OPTION,
     ENTER_PROXY_LINKS,
-    SELECT_CATEGORY,
-    SELECT_METHOD,
-) = range(5)
+) = range(4)
 
 # ===================================================================
-#  دوال القائمة الرئيسية والبدء
+#  قسم البدء والقائمة الرئيسية
 # ===================================================================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -120,16 +108,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             reply_markup=reply_markup
         )
 
-async def back_to_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """دالة العودة إلى القائمة الرئيسية من أي مكان."""
-    query = update.callback_query
-    if query: 
-        await query.answer()
-    context.user_data.clear()
-    await start(update, context)
-
 # ===================================================================
-#  دوال قائمة تيليجرام
+# قسم إعداد بلاغات تيليجرام (التدفق الأولي)
 # ===================================================================
 
 async def show_telegram_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -155,10 +135,6 @@ async def show_telegram_menu(update: Update, context: ContextTypes.DEFAULT_TYPE)
     )
     return TELEGRAM_MENU
 
-# ===================================================================
-#  دوال إعداد البروكسي
-# ===================================================================
-
 async def start_proxy_setup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """الخطوة 1: اختيار نوع البروكسي قبل تحميل الحسابات."""
     query = update.callback_query
@@ -172,40 +148,89 @@ async def start_proxy_setup(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     
     await query.edit_message_text(
         "🌐 <b>الخطوة 1/3: إعداد البروكسي</b>\n\n"
-        "🔄 <b>التحديث الجديد:</b>\n"
-        "• ❌ إزالة نظام MTProto\n"
-        "• ✅ تفعيل Socks5 فقط\n"
-        "• 🚀 أداء أفضل وأكثر استقراراً\n\n"
-        "اختر نوع الاتصال:",
+        "🔄 <b>النظام الجديد - Socks5:</b>\n"
+        "• تنسيق بسيط: IP:PORT\n"
+        "• فحص تلقائي للجودة\n"
+        "• أداء أفضل من MTProto\n\n"
+        "هل تريد استخدام بروكسيات Socks5؟",
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
     return SELECT_PROXY_OPTION
 
+async def choose_session_source(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """الخطوة 2: تطلب من المستخدم اختيار فئة الحسابات (بعد إعداد البروكسي)."""
+    query = update.callback_query
+    await query.answer()
+    
+    categories = get_categories()
+    if not categories:
+        await query.edit_message_text("❌ لا توجد فئات تحتوي على حسابات. يرجى إضافتها أولاً.")
+        return ConversationHandler.END
+        
+    keyboard = []
+    for cat_id, name, count in categories:
+        keyboard.append([InlineKeyboardButton(f"{name} ({count} حساب)", callback_data=f"cat_{cat_id}")])
+    
+    keyboard.append([InlineKeyboardButton("رجوع 🔙", callback_data="back_to_proxy_setup")])
+    
+    await query.edit_message_text(
+        "📂 <b>الخطوة 2/3: اختيار فئة الحسابات</b>\n\n"
+        "✅ تم إعداد البروكسي بنجاح\n\n"
+        "اختر الفئة التي تحتوي على الحسابات التي تريد استخدامها:",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return SELECT_CATEGORY
+
+async def process_category_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """الخطوة 2: تعالج اختيار الفئة وتطلب خيار البروكسي."""
+    query = update.callback_query
+    await query.answer()
+    category_id = query.data.split("_")[1]
+    
+    # استخدم الدالة المحدثة من common.py
+    accounts = get_accounts(category_id)
+    
+    if not accounts:
+        await query.answer("❌ لا توجد حسابات صالحة في هذه الفئة!", show_alert=True)
+        return SELECT_CATEGORY
+        
+    context.user_data['accounts'] = accounts
+    await query.edit_message_text(
+        f"✅ <b>تم تحميل {len(accounts)} حساب بنجاح!</b>\n\n"
+        "📡 <b>الخطوة 2/3: إعداد البروكسي</b>\n\n"
+        "هل تريد استخدام بروكسي للحسابات؟",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("📡 استخدام بروكسي", callback_data="use_proxy")],
+            [InlineKeyboardButton("⏭️ تخطي (اتصال مباشر)", callback_data="skip_proxy")],
+            [InlineKeyboardButton("رجوع 🔙", callback_data="back_to_cat_select")],
+        ])
+    )
+    return SELECT_PROXY_OPTION
+
 async def process_proxy_option(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """معالجة اختيار نوع البروكسي."""
+    """تعالج خيار استخدام البروكسي وتطلب الروابط إذا لزم الأمر."""
     query = update.callback_query
     await query.answer()
     
     if query.data == "use_proxy":
         await query.edit_message_text(
-            "📡 <b>إدخال بروكسيات Socks5</b>\n\n"
-            "أرسل بروكسيات Socks5 (كل بروكسي في سطر منفصل):\n\n"
-            "📌 <b>التنسيق المطلوب:</b>\n"
-            "<code>IP:PORT</code>\n\n"
-            "📝 <b>مثال:</b>\n"
-            "<code>159.203.61.169:1080\n"
+            "🌐 <b>إدخال بروكسيات Socks5</b>\n\n"
+            "أرسل بروكسيات Socks5 (كل بروكسي في سطر):\n\n"
+            "📌 <i>مثال:</i>\n"
+            "159.203.61.169:1080\n"
             "96.126.96.163:9090\n"
-            "139.59.1.14:1080</code>\n\n"
-            "⚠️ الحد الأقصى: 50 بروكسي\n"
-            "🔍 سيتم فحصها فوراً قبل المتابعة",
-            parse_mode="HTML"
+            "139.59.1.14:1080\n\n"
+            "⚠️ الحد الأقصى: 50 بروكسي",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("إلغاء ❌", callback_data="cancel_setup")]])
         )
         return ENTER_PROXY_LINKS
-    else:
-        context.user_data['proxies'] = []
-        # عرض فئات الحسابات مباشرة بدون بروكسي
-        return await choose_session_source(update, context)
+        
+    context.user_data['proxies'] = []
+    return await choose_session_source(update, context)
 
 async def process_proxy_links(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """معالجة بروكسيات Socks5 مع الفحص الفوري"""
@@ -314,100 +339,16 @@ async def process_proxy_links(update: Update, context: ContextTypes.DEFAULT_TYPE
     # الانتقال لاختيار الحسابات
     return await choose_session_source(update, context)
 
-# ===================================================================
-#  دوال اختيار الحسابات
-# ===================================================================
-
-async def choose_session_source(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """الخطوة 2: اختيار فئة الحسابات بعد إعداد البروكسي."""
-    try:
-        if update.callback_query:
-            query = update.callback_query
-            await query.answer()
-        
-        categories = get_categories()
-        if not categories:
-            text = "❌ لا توجد فئات متاحة. تأكد من وجود حسابات في قاعدة البيانات."
-            keyboard = [[InlineKeyboardButton("🔙 رجوع", callback_data="back_to_proxy_setup")]]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            if update.callback_query:
-                await update.callback_query.edit_message_text(text, reply_markup=reply_markup)
-            else:
-                await update.message.reply_text(text, reply_markup=reply_markup)
-            return SELECT_CATEGORY
-        
-        keyboard = []
-        for cat_id, name, count in categories:
-            keyboard.append([InlineKeyboardButton(f"{name} ({count} حساب)", callback_data=f"cat_{cat_id}")])
-        
-        keyboard.append([InlineKeyboardButton("رجوع 🔙", callback_data="back_to_proxy_setup")])
-        
-        if update.callback_query:
-            await update.callback_query.edit_message_text(
-                "📂 <b>الخطوة 2/3: اختيار فئة الحسابات</b>\n\n"
-                "اختر الفئة التي تريد استخدامها للإبلاغ:",
-                parse_mode="HTML",
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
-        else:
-            await update.message.reply_text(
-                "📂 <b>الخطوة 2/3: اختيار فئة الحسابات</b>\n\n"
-                "اختر الفئة التي تريد استخدامها للإبلاغ:",
-                parse_mode="HTML",
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
-        
-        return SELECT_CATEGORY
-        
-    except Exception as e:
-        logger.error(f"خطأ في choose_session_source: {e}")
-        await update.message.reply_text("❌ حدث خطأ أثناء تحميل الفئات.")
-        return ConversationHandler.END
-
-async def process_category_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """معالجة اختيار فئة الحسابات والانتقال لقائمة طرق الإبلاغ."""
-    query = update.callback_query
-    await query.answer()
-    
-    category_id = query.data.split('_')[1]  # قد يكون UUID أو رقم
-    context.user_data['selected_category'] = category_id
-    
-    accounts = get_accounts(category_id)
-    if not accounts:
-        await query.edit_message_text("❌ لا توجد حسابات في هذه الفئة.")
-        return ConversationHandler.END
-    
-    context.user_data['accounts'] = accounts
-    
-    # عرض قائمة طرق الإبلاغ والانتقال لحالة اختيار الطريقة
-    await select_method_menu(update, context, is_query=True)
-    return SELECT_METHOD
-
-# ===================================================================
-#  دوال اختيار طريقة الإبلاغ
-# ===================================================================
-
 async def select_method_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, is_query=False) -> int:
-    """الخطوة 3: عرض قائمة طرق الإبلاغ المتاحة."""
-    proxies = context.user_data.get('proxies', [])
-    proxy_status = f"✅ {len(proxies)} بروكسي نشط" if proxies else "🔗 اتصال مباشر"
-    
-    selected_category = context.user_data.get('selected_category')
-    accounts = context.user_data.get('accounts', [])
-    
+    """الخطوة 3: تعرض قائمة طرق الإبلاغ ثم تنهي محادثة الإعداد."""
     text = (
-        f"🎯 <b>الخطوة 3/3: اختيار طريقة الإبلاغ</b>\n\n"
-        f"📊 <b>ملخص الإعداد:</b>\n"
-        f"• البروكسي: {proxy_status}\n"
-        f"• الحسابات: {len(accounts)} حساب\n"
-        f"• الفئة: {selected_category}\n\n"
-        f"🔥 اختر نوع الإبلاغ:"
+        "🛠️ <b>الخطوة 3/3: اختيار طريقة الإبلاغ</b>\n\n"
+        "✅ تم إعداد البروكسي والحسابات بنجاح\n\n"
+        "اختر طريقة الإبلاغ التي تناسبك:"
     )
-    
     keyboard = [
-        [InlineKeyboardButton("👤 بلاغ عضو", callback_data="method_peer")],
-        [InlineKeyboardButton("💬 بلاغ رسالة", callback_data="method_message")],
+        [InlineKeyboardButton("👤 حساب/قناة", callback_data="method_peer")],
+        [InlineKeyboardButton("💬 رسالة", callback_data="method_message")],
         [InlineKeyboardButton("🖼️ صورة شخصية", callback_data="method_photo")],
         [InlineKeyboardButton("📢 إعلان ممول", callback_data="method_sponsored")],
         [InlineKeyboardButton("🔥 بلاغ جماعي", callback_data="method_mass")],
@@ -422,9 +363,15 @@ async def select_method_menu(update: Update, context: ContextTypes.DEFAULT_TYPE,
         
     return ConversationHandler.END
 
-# ===================================================================
-#  دوال الرجوع والإلغاء
-# ===================================================================
+# --- دوال الإلغاء والرجوع ---
+async def back_to_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """دالة العودة إلى القائمة الرئيسية من أي مكان."""
+    query = update.callback_query
+    if query: 
+        await query.answer()
+    context.user_data.clear()
+    await start(update, context)
+    return ConversationHandler.END
 
 async def cancel_setup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """يلغي عملية الإعداد ويعود لقائمة تيليجرام."""
@@ -447,20 +394,17 @@ async def back_to_proxy_option(update: Update, context: ContextTypes.DEFAULT_TYP
     return await start_proxy_setup(update, context)
 
 # ===================================================================
-#  إعداد البوت والمعالجات
+# إعداد البوت
 # ===================================================================
 
-def main():
-    """الدالة الرئيسية لتشغيل البوت."""
-    logger.info("🤖 بدء تشغيل بوت الإبلاغ المطور...")
-    logger.info("🌐 نظام Socks5 الجديد محمل")
-    
-    # إنشاء تطبيق البوت
+def main() -> None:
+    """إعداد وتشغيل البوت."""
+    logger.info("🚀 بدء تشغيل البوت الأساسي...")
     logger.info("🤖 إنشاء تطبيق البوت...")
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     logger.info("✅ تم إنشاء التطبيق بنجاح")
 
-    # --- المعالجات الأساسية ---
+    # --- معالج البدء الرئيسي ---
     logger.info("📱 إضافة معالجات أساسية...")
     app.add_handler(CommandHandler("start", start))
     logger.info("✅ تم إضافة المعالجات الأساسية")
@@ -487,18 +431,12 @@ def main():
                 CallbackQueryHandler(process_category_selection, pattern='^cat_'),
                 CallbackQueryHandler(back_to_proxy_setup, pattern='^back_to_proxy_setup$')
             ],
-            SELECT_METHOD: [
-                # هذه الحالة تنتهي المحادثة وتنتقل للمعالجات الخارجية
-                # أزرار method_* يتم معالجتها بواسطة ConversationHandlers الأخرى
-            ],
         },
         fallbacks=[
             CallbackQueryHandler(cancel_setup, pattern='^cancel_setup$'),
             CallbackQueryHandler(back_to_main_menu, pattern='^back_to_main_menu$'),
         ],
         per_user=True,
-        per_chat=False,
-        per_message=False,
     )
     
     # --- إضافة جميع المعالجات إلى التطبيق ---
@@ -506,19 +444,16 @@ def main():
     app.add_handler(telegram_setup_conv)
     logger.info("✅ تم إضافة معالج التليجرام")
     
-    # --- معالجات البريد الإلكتروني ---
     logger.info("📧 فحص معالج البريد الإلكتروني...")
     if email_conv_handler: 
         app.add_handler(email_conv_handler)
-        logger.info("✅ معالج البريد الإلكتروني")
+        logger.info("✅ تم إضافة معالج البريد الإلكتروني")
     else:
         logger.info("ℹ️ معالج البريد الإلكتروني غير متاح")
     
-    # --- معالجات تقارير تيليجرام ---
-    logger.info("📱 إضافة معالجات التقارير...")
-    
+    logger.info("📋 إضافة معالجات التقارير...")
     app.add_handler(peer_report_conv)
-    logger.info("✅ معالج تقارير الأعضاء")
+    logger.info("✅ معالج تقارير الأشخاص")
     
     app.add_handler(message_report_conv)
     logger.info("✅ معالج تقارير الرسائل")
@@ -527,12 +462,11 @@ def main():
     logger.info("✅ معالج تقارير الصور")
     
     app.add_handler(sponsored_report_conv)
-    logger.info("✅ معالج التقارير الممولة")
+    logger.info("✅ معالج التقارير المدعومة")
     
     app.add_handler(mass_report_conv)
     logger.info("✅ معالج التقارير الجماعية")
     
-    # --- معالجات الدعم ---
     logger.info("🔧 إضافة معالجات الدعم...")
     if register_support_handlers: 
         register_support_handlers(app)

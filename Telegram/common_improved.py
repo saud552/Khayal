@@ -30,7 +30,7 @@ from telethon.errors import (
     MessageIdInvalidError,
     PeerIdInvalidError
 )
-from telethon.network import ConnectionTcpMTProxyRandomizedIntermediate
+# Removed MTProto proxy import - now using Socks5
 from telethon.sessions import StringSession
 from encryption import decrypt_session
 from config import API_ID, API_HASH
@@ -88,8 +88,8 @@ REPORT_TYPES_ENHANCED = {
     11: ("أخرى", types.InputReportReasonOther(), "other"),
 }
 
-class EnhancedProxyChecker:
-    """نظام فحص بروكسي محسن مع تتبع مفصل وتحقق حقيقي"""
+class Socks5ProxyChecker:
+    """نظام فحص بروكسي Socks5 محسن"""
     
     def __init__(self):
         self.proxy_stats = {}
@@ -98,45 +98,36 @@ class EnhancedProxyChecker:
         self.concurrent_checks = 3  # عدد الفحوصات المتزامنة
         
     async def deep_proxy_test(self, session_str: str, proxy_info: dict) -> dict:
-        """اختبار عميق للبروكسي مع فحوصات متعددة"""
+        """اختبار بروكسي Socks5 مع فحوصات متعددة"""
+        import socks
+        import socket
+        
         result = proxy_info.copy()
         client = None
+        original_socket = socket.socket
         
         try:
-            # إعداد العميل مع timeout صارم
+            # إعداد البروكسي Socks5
+            socks.set_default_proxy(socks.SOCKS5, proxy_info['host'], proxy_info['port'])
+            socket.socket = socks.socksocket
+            
+            # إعداد العميل
             params = {
                 "api_id": API_ID,
                 "api_hash": API_HASH,
-                "timeout": PROXY_CHECK_TIMEOUT,
-                "connection": ConnectionTcpMTProxyRandomizedIntermediate,
+                "timeout": 15,
                 "device_model": "Proxy Test Bot",
                 "system_version": "1.0.0",
                 "app_version": "1.0.0",
                 "lang_code": "ar"
             }
             
-            # تحضير السر
-            secret = proxy_info["secret"]
-            if isinstance(secret, str):
-                try:
-                    secret_bytes = bytes.fromhex(secret)
-                except ValueError:
-                    raise ProxyTestFailed(f"سر غير صالح: {secret}")
-            else:
-                secret_bytes = secret
-                
-            params["proxy"] = (
-                proxy_info["server"],
-                proxy_info["port"],
-                secret_bytes
-            )
-            
             # اختبار الاتصال الأولي
             start_time = time.time()
             client = TelegramClient(StringSession(session_str), **params)
             
             # اختبار الاتصال مع timeout
-            await asyncio.wait_for(client.connect(), timeout=PROXY_CHECK_TIMEOUT)
+            await asyncio.wait_for(client.connect(), timeout=15)
             connection_time = time.time() - start_time
             
             # التحقق من التفويض
@@ -145,14 +136,17 @@ class EnhancedProxyChecker:
             
             # اختبار سرعة الاستجابة
             response_start = time.time()
-            me = await asyncio.wait_for(client.get_me(), timeout=PROXY_CHECK_TIMEOUT)
+            me = await asyncio.wait_for(client.get_me(), timeout=10)
             response_time = time.time() - response_start
             
             # اختبار إضافي: جلب الحوارات
             dialogs_start = time.time()
-            async for dialog in client.iter_dialogs(limit=5):
-                break
-            dialogs_time = time.time() - dialogs_start
+            try:
+                async for dialog in client.iter_dialogs(limit=3):
+                    break
+                dialogs_time = time.time() - dialogs_start
+            except:
+                dialogs_time = 0
             
             # تقييم جودة البروكسي
             ping = int(connection_time * 1000)
@@ -181,7 +175,7 @@ class EnhancedProxyChecker:
                 "error": None
             })
             
-            detailed_logger.info(f"✅ بروكسي نشط: {proxy_info['server']} - ping: {ping}ms - جودة: {quality_score}%")
+            detailed_logger.info(f"✅ بروكسي Socks5 نشط: {proxy_info['host']}:{proxy_info['port']} - ping: {ping}ms")
             
         except asyncio.TimeoutError:
             result.update({
@@ -193,7 +187,8 @@ class EnhancedProxyChecker:
                 "connection_successful": False,
                 "error": "انتهت مهلة الاتصال"
             })
-            self.failed_proxies.add(proxy_info["server"])
+            proxy_key = f"{proxy_info['host']}:{proxy_info['port']}"
+            self.failed_proxies.add(proxy_key)
             
         except ProxyTestFailed as e:
             result.update({
@@ -205,7 +200,8 @@ class EnhancedProxyChecker:
                 "connection_successful": False,
                 "error": str(e)
             })
-            self.failed_proxies.add(proxy_info["server"])
+            proxy_key = f"{proxy_info['host']}:{proxy_info['port']}"
+            self.failed_proxies.add(proxy_key)
             
         except Exception as e:
             result.update({
@@ -217,9 +213,14 @@ class EnhancedProxyChecker:
                 "connection_successful": False,
                 "error": str(e)
             })
-            logger.error(f"خطأ في فحص البروكسي {proxy_info['server']}: {e}")
+            proxy_key = f"{proxy_info['host']}:{proxy_info['port']}"
+            logger.error(f"خطأ في فحص البروكسي Socks5 {proxy_key}: {e}")
             
         finally:
+            # إعادة تعيين الإعدادات
+            socks.set_default_proxy()
+            socket.socket = original_socket
+            
             if client and client.is_connected():
                 try:
                     await client.disconnect()
@@ -242,7 +243,8 @@ class EnhancedProxyChecker:
         valid_results = []
         for i, result in enumerate(results):
             if isinstance(result, Exception):
-                logger.error(f"خطأ في فحص البروكسي {proxies[i]['server']}: {result}")
+                proxy_key = f"{proxies[i]['host']}:{proxies[i]['port']}"
+                logger.error(f"خطأ في فحص البروكسي Socks5 {proxy_key}: {result}")
                 proxies[i].update({
                     "status": "error",
                     "error": str(result),
@@ -271,6 +273,33 @@ class EnhancedProxyChecker:
         """تحديد إذا كان البروكسي يحتاج إعادة فحص"""
         last_check = proxy_info.get('last_check', 0)
         return (time.time() - last_check) > PROXY_RECHECK_INTERVAL
+
+# إنشاء نسخة عامة من مدقق البروكسي Socks5
+socks5_proxy_checker = Socks5ProxyChecker()
+
+def parse_socks5_proxy(proxy_string: str) -> dict | None:
+    """
+    يحلل بروكسي Socks5 من صيغة IP:PORT
+    """
+    try:
+        proxy_string = proxy_string.strip()
+        if ':' not in proxy_string:
+            return None
+            
+        parts = proxy_string.split(':')
+        if len(parts) != 2:
+            return None
+            
+        host = parts[0].strip()
+        port = int(parts[1].strip())
+        
+        if not host or port <= 0 or port > 65535:
+            return None
+            
+        return {'host': host, 'port': port, 'type': 'socks5'}
+    except Exception as e:
+        logger.error(f"خطأ في تحليل بروكسي Socks5: {e}")
+        return None
 
 class VerifiedReporter:
     """نظام إبلاغ محسن مع تأكيد الإرسال والتحقق من النجاح"""
@@ -718,48 +747,8 @@ def convert_secret_enhanced(secret: str) -> str | None:
     
     return None
 
-def parse_proxy_link_enhanced(link: str) -> dict | None:
-    """تحليل رابط البروكسي محسن مع دعم صيغ متعددة"""
-    try:
-        parsed = urlparse(link)
-        params = parse_qs(parsed.query)
-        
-        server = params.get('server', [''])[0]
-        port = params.get('port', [''])[0]
-        secret = params.get('secret', [''])[0]
-        
-        if not all([server, port, secret]):
-            # محاولة استخراج من المسار
-            parts = parsed.path.strip('/').split('/')
-            if len(parts) >= 3:
-                server, port, secret = parts[0], parts[1], '/'.join(parts[2:])
-        
-        if not all([server, port, secret]):
-            return None
-        
-        try:
-            port = int(port)
-        except ValueError:
-            return None
-        
-        hex_secret = convert_secret_enhanced(secret)
-        if not hex_secret:
-            return None
-        
-        return {
-            'server': server.strip(),
-            'port': port,
-            'secret': hex_secret,
-            'format': 'hex',
-            'original_link': link
-        }
-        
-    except Exception as e:
-        logger.error(f"خطأ في تحليل رابط البروكسي: {e}")
-        return None
-
 # === إنشاء المكونات المحسنة ===
-enhanced_proxy_checker = EnhancedProxyChecker()
+# تم استبدال enhanced_proxy_checker بـ socks5_proxy_checker
 
 async def run_enhanced_report_process(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """عملية إبلاغ محسنة مع تتبع مفصل وتأكيد الإرسال"""
@@ -794,40 +783,73 @@ async def run_enhanced_report_process(update: Update, context: ContextTypes.DEFA
         }
     })
     
-    # فحص البروكسيات أولاً
+    # استخدام البروكسيات المفحوصة مسبقاً (تم فحصها في khayal.py)
     if proxies:
-        progress_msg = await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text="🔍 جاري فحص البروكسيات بشكل مفصل..."
-        )
-        
-        # استخدام أول جلسة للفحص
-        test_session = sessions[0]["session"]
-        checked_proxies = await enhanced_proxy_checker.batch_check_proxies(test_session, proxies)
-        
-        active_proxies = [p for p in checked_proxies if p.get('status') == 'active']
-        
-        if not active_proxies:
-            await progress_msg.edit_text(
-                "❌ لا توجد بروكسيات نشطة. سيتم استخدام الاتصال المباشر."
-            )
-            config["proxies"] = []
+        # التحقق من أن البروكسيات تحتوي على معلومات الفحص المسبق
+        if isinstance(proxies, list) and len(proxies) > 0 and 'status' in proxies[0]:
+            # البروكسيات مفحوصة مسبقاً - استخدامها مباشرة
+            active_proxies = [p for p in proxies if p.get('status') == 'active']
+            
+            if active_proxies:
+                proxy_summary = "\n".join([
+                    f"• {p['host']}:{p['port']} - ping: {p.get('ping', 'N/A')}ms"
+                    for p in active_proxies[:3]
+                ])
+                
+                progress_msg = await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text=f"✅ <b>استخدام البروكسيات المفحوصة</b>\n"
+                         f"• نشط: {len(active_proxies)} بروكسي\n\n"
+                         f"🏆 <b>أفضل البروكسيات:</b>\n{proxy_summary}",
+                    parse_mode="HTML"
+                )
+                
+                config["proxies"] = active_proxies
+                detailed_logger.info(f"✅ تم تحميل {len(active_proxies)} بروكسي مفحوص مسبقاً")
+                
+                for proxy in active_proxies:
+                    detailed_logger.info(f"✅ بروكسي Socks5 نشط: {proxy['host']}:{proxy['port']} - ping: {proxy.get('ping', 'N/A')}ms")
+                
+                await asyncio.sleep(2)
+            else:
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text="❌ لا توجد بروكسيات نشطة من الفحص المسبق. سيتم استخدام الاتصال المباشر."
+                )
+                config["proxies"] = []
         else:
-            best_proxies = enhanced_proxy_checker.get_best_proxies(active_proxies, 5)
-            config["proxies"] = best_proxies
-            
-            proxy_summary = "\n".join([
-                f"• {p['server']} - جودة: {p['quality_score']}% - ping: {p['ping']}ms"
-                for p in best_proxies[:3]
-            ])
-            
-            await progress_msg.edit_text(
-                f"✅ تم فحص البروكسيات\n"
-                f"نشط: {len(active_proxies)}/{len(proxies)}\n\n"
-                f"أفضل البروكسيات:\n{proxy_summary}"
+            # فحص البروكسيات إذا لم تكن مفحوصة مسبقاً (احتياطي)
+            progress_msg = await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="🔍 جاري فحص البروكسيات بشكل مفصل..."
             )
             
-            await asyncio.sleep(2)
+            test_session = sessions[0]["session"]
+            checked_proxies = await socks5_proxy_checker.batch_check_proxies(test_session, proxies)
+            
+            active_proxies = [p for p in checked_proxies if p.get('status') == 'active']
+            
+            if not active_proxies:
+                await progress_msg.edit_text(
+                    "❌ لا توجد بروكسيات Socks5 نشطة. سيتم استخدام الاتصال المباشر."
+                )
+                config["proxies"] = []
+            else:
+                best_proxies = socks5_proxy_checker.get_best_proxies(active_proxies, 5)
+                config["proxies"] = best_proxies
+                
+                proxy_summary = "\n".join([
+                    f"• {p['host']}:{p['port']} - ping: {p['ping']}ms"
+                    for p in best_proxies[:3]
+                ])
+                
+                await progress_msg.edit_text(
+                    f"✅ تم فحص البروكسيات\n"
+                    f"نشط: {len(active_proxies)}/{len(proxies)}\n\n"
+                    f"أفضل البروكسيات:\n{proxy_summary}"
+                )
+                
+                await asyncio.sleep(2)
     
     # بدء عملية الإبلاغ المحسنة
     try:
@@ -876,7 +898,7 @@ async def process_enhanced_session(session: dict, targets: list, reports_per_acc
         # اختيار أفضل بروكسي
         if proxies:
             current_proxy = random.choice(proxies)
-            detailed_logger.info(f"🔗 استخدام البروكسي {current_proxy['server']} للحساب {session_id}")
+            detailed_logger.info(f"🔗 استخدام البروكسي {current_proxy['host']}:{current_proxy['port']} للحساب {session_id}")
         
         # إعداد العميل
         params = {
@@ -889,11 +911,12 @@ async def process_enhanced_session(session: dict, targets: list, reports_per_acc
         }
         
         if current_proxy:
-            secret_bytes = bytes.fromhex(current_proxy["secret"])
+            # إعداد بروكسي Socks5 مع telethon
+            import socks
             params.update({
-                "connection": ConnectionTcpMTProxyRandomizedIntermediate,
-                "proxy": (current_proxy["server"], current_proxy["port"], secret_bytes)
+                "proxy": (socks.SOCKS5, current_proxy["host"], current_proxy["port"])
             })
+            detailed_logger.info(f"🔗 إعداد بروكسي Socks5: {current_proxy['host']}:{current_proxy['port']}")
         
         # الاتصال
         client = TelegramClient(StringSession(session_str), **params)

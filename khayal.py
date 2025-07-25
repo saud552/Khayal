@@ -411,6 +411,7 @@ def main() -> None:
 
     # --- معالج قسم تيليجرام (الإعداد الأولي) ---
     logger.info("🛠️ إعداد معالج التليجرام...")
+    logger.info("🔧 بدء إنشاء ConversationHandler...")
     telegram_setup_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(show_telegram_menu, pattern='^main_telegram$')],
         states={
@@ -433,8 +434,6 @@ def main() -> None:
         },
         fallbacks=[
             CallbackQueryHandler(cancel_setup, pattern='^cancel_setup$'),
-            
-            CommandHandler('cancel', cancel_operation),
             CallbackQueryHandler(back_to_main_menu, pattern='^back_to_main_menu$'),
         ],
         per_user=True,

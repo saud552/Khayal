@@ -468,7 +468,12 @@ def main():
     # معالج /cancel عالمي لإيقاف أي مهمة جارية
     app.add_handler(CommandHandler("cancel", cancel_operation))
     # معالجات أزرار رئيسية عامة لضمان الاستجابة دائمًا
-    app.add_handler(CallbackQueryHandler(show_telegram_menu, pattern='^main_telegram$'))
+    # (يتم الاعتماد أساسًا على ConversationHandler للدخول إلى قسم تيليجرام)
+    # معالجات عامة للبدء والرجوع لضمان الاستجابة حتى خارج حالة المحادثة
+    app.add_handler(CallbackQueryHandler(start_proxy_setup, pattern='^start_proxy_setup$'))
+    app.add_handler(CallbackQueryHandler(back_to_tg_menu, pattern='^back_to_tg_menu$'))
+    app.add_handler(CallbackQueryHandler(back_to_proxy_option, pattern='^back_to_proxy_option$'))
+    app.add_handler(CallbackQueryHandler(back_to_proxy_setup, pattern='^back_to_proxy_setup$'))
     logger.info("✅ تم إضافة المعالجات الأساسية")
 
     # --- معالج قسم تيليجرام (الإعداد الأولي) ---

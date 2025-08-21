@@ -380,8 +380,9 @@ async def run_support_process(update: Update, context: ContextTypes.DEFAULT_TYPE
                 pass
             await asyncio.sleep(15)
 
-    # بدء مهمة تحديث التقدم
-    asyncio.create_task(update_progress())
+    # بدء مهمة تحديث التقدم وتخزينها للإلغاء
+    progress_task = asyncio.create_task(update_progress())
+    context.user_data.setdefault("tasks", []).append(progress_task)
     
     # انتظار انتهاء جميع مهام الجلسات
     await asyncio.gather(*session_tasks, return_exceptions=True)
@@ -408,7 +409,7 @@ async def run_support_process(update: Update, context: ContextTypes.DEFAULT_TYPE
     chat_id = cfg["progress_message"].chat_id
     kb = [
         [InlineKeyboardButton('قسم بلاغات ايميل', callback_data='email_reports')],
-        [InlineKeyboardButton('قسم بلاغات تيليجرام', callback_data='telegram_reports')]
+        [InlineKeyboardButton('قسم بلاغات تيليجرام', callback_data='main_telegram')]
     ]
     await context.bot.send_message(
         chat_id=chat_id, 
@@ -533,11 +534,43 @@ async def do_session_support(session_data, contact, cfg, context):
 # --- دوال مساعدة ---
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """إلغاء العملية الحالية والعودة للقائمة الرئيسية"""
+    # وضع علامة الإلغاء ليتم التوقف في الحلقات
+    context.user_data["active"] = False
+
+    # إلغاء المهام الخلفية المخزنة
+    for task in context.user_data.get("tasks", []):
+        if not task.done():
+            try:
+                task.cancel()
+            except Exception:
+                pass
+    await asyncio.sleep(0)  # إتاحة دورة للغاء المهام
+
+    # تنظيف الملفات المؤقتة إن وجدت
+    for fp in context.user_data.get('attachments', []):
+        try:
+            os.remove(fp)
+        except:
+            pass
+
+    # تنظيف كل البيانات المؤقتة
     context.user_data.clear()
-    if hasattr(update, 'message'):
+
+    # إعادة المستخدم للبداية
+    if hasattr(update, 'message') and update.message:
         await update.message.reply_text("تم الإلغاء.")
     else:
         await update.callback_query.message.reply_text("تم الإلغاء.")
+
+    kb = [
+        [InlineKeyboardButton('قسم بلاغات ايميل', callback_data='email_reports')],
+        [InlineKeyboardButton('قسم بلاغات تيليجرام', callback_data='main_telegram')]
+    ]
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text='مرحبًا! اختر القسم:',
+        reply_markup=InlineKeyboardMarkup(kb)
+    )
     return ConversationHandler.END
 
 # --- تسجيل ConversationHandler الخاص بالدعم الخاص ---

@@ -44,7 +44,7 @@ except ImportError:
 
 # --- استيراد معالجات البريد الإلكتروني ---
 try:
-    from Email.Email_reports import email_conv_handler
+    from Email.email_reports import email_conv_handler
 except ImportError:
     logging.warning("تحذير: لم يتم العثور على وحدة البريد الإلكتروني. سيتم تجاهل هذا القسم.")
     email_conv_handler = None

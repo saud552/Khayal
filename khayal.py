@@ -62,6 +62,7 @@ from Telegram.report_message import message_report_conv
 from Telegram.report_photo import photo_report_conv
 from Telegram.report_sponsored import sponsored_report_conv
 from Telegram.report_mass import mass_report_conv
+from Telegram.report_bot_messages import bot_messages_report_conv
 
 # --- استيراد الدوال المشتركة ---
 from Telegram.common import get_categories, get_accounts, cancel_operation
@@ -410,6 +411,7 @@ async def select_method_menu(update: Update, context: ContextTypes.DEFAULT_TYPE,
         [InlineKeyboardButton("🖼️ صورة شخصية", callback_data="method_photo")],
         [InlineKeyboardButton("📢 إعلان ممول", callback_data="method_sponsored")],
         [InlineKeyboardButton("🔥 بلاغ جماعي", callback_data="method_mass")],
+        [InlineKeyboardButton("🤖 رسائل بوت", callback_data="method_bot_messages")],
         [InlineKeyboardButton("رجوع 🔙", callback_data="back_to_proxy_option")],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -532,6 +534,9 @@ def main():
     
     app.add_handler(mass_report_conv)
     logger.info("✅ معالج التقارير الجماعية")
+
+    app.add_handler(bot_messages_report_conv)
+    logger.info("✅ معالج بلاغ رسائل البوت")
     
     # --- معالجات الدعم ---
     logger.info("🔧 إضافة معالجات الدعم...")

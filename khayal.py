@@ -49,13 +49,12 @@ except ImportError:
     logging.warning("تحذير: لم يتم العثور على وحدة البريد الإلكتروني. سيتم تجاهل هذا القسم.")
     email_conv_handler = None
 
-# --- استيراد معالجات الدعم (معطل مؤقتاً) ---
-# try:
-#     from Telegram.support_module import register_support_handlers
-# except ImportError:
-#     logging.warning("تحذير: لم يتم العثور على وحدة الدعم الخاص (support_module.py). سيتم تجاهلها.")
-register_support_handlers = None
-logging.info("ℹ️ تم تعطيل support_module مؤقتاً لحل مشكلة التعليق")
+# --- استيراد معالجات الدعم (تم التفعيل) ---
+try:
+    from Telegram.support_module import register_support_handlers
+except ImportError:
+    register_support_handlers = None
+    logging.warning("تحذير: لم يتم العثور على وحدة الدعم الخاص (support_module.py). سيتم تجاهلها.")
 
 # --- استيراد معالجات تقارير تيليجرام ---
 from Telegram.report_peer import peer_report_conv
@@ -475,7 +474,6 @@ def main():
         states={
             TELEGRAM_MENU: [
                 CallbackQueryHandler(start_proxy_setup, pattern='^start_proxy_setup$'),
-                CallbackQueryHandler(back_to_main_menu, pattern='^special_support$'),
             ],
             SELECT_PROXY_OPTION: [
                 CallbackQueryHandler(process_proxy_option, pattern='^(use_proxy|skip_proxy)$'),

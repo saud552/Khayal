@@ -6,12 +6,15 @@ import logging
 import re
 import smtplib
 import traceback
-from threading import Thread, Lock
+from threading import Thread, Lock, Event
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
 from email import encoders
 from time import sleep
+import mimetypes
+from email.utils import make_msgid, formatdate
+import uuid
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -20,6 +23,7 @@ from telegram.ext import (
     MessageHandler,
     filters,
     ContextTypes,
+    CommandHandler,
 )
 
 # --- استيراد الإعدادات من ملف config.py الرئيسي ---
@@ -35,6 +39,9 @@ OWNER_EMAIL = "test@example.com"  # يجب تحديث هذا ببريد الما
 
 # --- تعريف الثوابت والمتغيرات الخاصة بوحدة الإيميل ---
 logger = logging.getLogger(__name__)
+
+# إيفنت عام لإلغاء مهام الإرسال
+EMAIL_CANCEL_EVENT = Event()
 
 # تحديد المسارات بناءً على موقع الملف الحالي
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -105,7 +112,7 @@ def save_email_accounts(accounts):
 # -------------- SMTP Client --------------
 
 class SMTPClient:
-    def __init__(self, email, password, targets, count, subject, body, attachments, delay):
+    def __init__(self, email, password, targets, count, subject, body, attachments, delay, cancel_event: Event):
         self.email = email
         self.password = password
         self.targets = targets
@@ -114,6 +121,7 @@ class SMTPClient:
         self.body = body
         self.attachments = attachments or []
         self.delay = delay
+        self.cancel_event = cancel_event
 
     def verify(self):
         try:
@@ -128,27 +136,73 @@ class SMTPClient:
 
     def send_emails(self):
         try:
+            if self.cancel_event.is_set():
+                return False
             server = smtplib.SMTP('smtp.gmail.com', 587)
             server.starttls()
             server.login(self.email, self.password)
-            for _ in range(self.count):
-                msg = MIMEMultipart()
-                msg['From'] = self.email
-                msg['To'] = ', '.join(self.targets)
-                msg['Subject'] = self.subject
-                msg.attach(MIMEText(self.body, 'plain'))
-                for path in self.attachments:
-                    if os.path.exists(path):
-                        part = MIMEBase('application', 'octet-stream')
-                        with open(path, 'rb') as f:
-                            part.set_payload(f.read())
-                        encoders.encode_base64(part)
+            for i in range(self.count):
+                if self.cancel_event.is_set():
+                    break
+                for target in self.targets:
+                    if self.cancel_event.is_set():
+                        break
+                    msg = MIMEMultipart()
+                    msg['From'] = self.email
+                    msg['To'] = target
+                    subject_suffix = f" [{i+1}]" if self.count > 1 else ""
+                    msg['Subject'] = f"{self.subject}{subject_suffix}"
+                    msg['Message-ID'] = make_msgid()
+                    msg['Date'] = formatdate(localtime=True)
+                    msg.attach(MIMEText(self.body or '', 'plain', 'utf-8'))
+
+                    for path in self.attachments:
+                        if self.cancel_event.is_set():
+                            break
+                        if not os.path.exists(path):
+                            continue
+                        ctype, encoding = mimetypes.guess_type(path)
+                        if ctype is None or encoding is not None:
+                            ctype = 'application/octet-stream'
+                        maintype, subtype = ctype.split('/', 1)
+                        try:
+                            if maintype == 'text':
+                                from email.mime.text import MIMEText as _MIMEText
+                                with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+                                    part = _MIMEText(f.read(), _subtype=subtype, _charset='utf-8')
+                            elif maintype == 'image':
+                                from email.mime.image import MIMEImage
+                                with open(path, 'rb') as f:
+                                    part = MIMEImage(f.read(), _subtype=subtype)
+                            elif maintype == 'audio':
+                                from email.mime.audio import MIMEAudio
+                                with open(path, 'rb') as f:
+                                    part = MIMEAudio(f.read(), _subtype=subtype)
+                            else:
+                                with open(path, 'rb') as f:
+                                    part = MIMEBase(maintype, subtype)
+                                    part.set_payload(f.read())
+                                    encoders.encode_base64(part)
+                        except Exception:
+                            with open(path, 'rb') as f:
+                                part = MIMEBase('application', 'octet-stream')
+                                part.set_payload(f.read())
+                                encoders.encode_base64(part)
                         part.add_header('Content-Disposition', f'attachment; filename="{os.path.basename(path)}"')
                         msg.attach(part)
-                server.sendmail(self.email, self.targets, msg.as_string())
-                sleep(self.delay)
+
+                    if self.cancel_event.is_set():
+                        break
+                    server.sendmail(self.email, [target], msg.as_string())
+                    if self.delay:
+                        for _ in range(int(self.delay * 10)):
+                            if self.cancel_event.is_set():
+                                break
+                            sleep(0.1)
+                        if self.cancel_event.is_set():
+                            break
             server.quit()
-            return True
+            return not self.cancel_event.is_set()
         except Exception as e:
             logger.error(f"SMTP send failed: {e}")
             return False
@@ -476,19 +530,42 @@ async def get_attachments(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await cancel(update, context)
     os.makedirs(TEMP_DIR, exist_ok=True)
 
+    file = None
+    name = None
+
     if update.message.document:
         file = await update.message.document.get_file()
-        name = update.message.document.file_name
+        name = update.message.document.file_name or f"document_{update.message.document.file_unique_id}"
     elif update.message.photo:
-        file = await update.message.photo[-1].get_file()
-        name = f"photo_{file.file_id}.jpg"
+        size = update.message.photo[-1]
+        file = await size.get_file()
+        ext = os.path.splitext(getattr(file, 'file_path', '') or '')[1] or '.jpg'
+        name = f"photo_{size.file_unique_id}{ext}"
+    elif update.message.video:
+        file = await update.message.video.get_file()
+        name = update.message.video.file_name or f"video_{update.message.video.file_unique_id}.mp4"
+    elif update.message.animation:
+        file = await update.message.animation.get_file()
+        name = update.message.animation.file_name or f"animation_{update.message.animation.file_unique_id}.gif"
+    elif update.message.audio:
+        file = await update.message.audio.get_file()
+        name = update.message.audio.file_name or f"audio_{update.message.audio.file_unique_id}.mp3"
+    elif update.message.voice:
+        file = await update.message.voice.get_file()
+        name = f"voice_{update.message.voice.file_unique_id}.ogg"
+    elif getattr(update.message, 'video_note', None):
+        file = await update.message.video_note.get_file()
+        name = f"video_note_{update.message.video_note.file_unique_id}.mp4"
+    elif update.message.sticker:
+        file = await update.message.sticker.get_file()
+        name = f"sticker_{update.message.sticker.file_unique_id}.webp"
     else:
         await update.message.reply_text('نوع المرفق غير مدعوم.',
             reply_markup=InlineKeyboardMarkup([[BACK_BUTTON]])
         )
         return GET_ATTACHMENTS
 
-    path = os.path.join(TEMP_DIR, f"{file.file_id}_{name}")
+    path = os.path.join(TEMP_DIR, name)
     await file.download_to_drive(path)
     context.user_data.setdefault('attachments', []).append(path)
 
@@ -550,6 +627,9 @@ async def perform_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # تأكد من وجود المفتاح 'attachments' ولو بقائمة فارغة
     attachments = context.user_data.get('attachments', [])
 
+    # إعادة ضبط إشارة الإلغاء قبل البدء
+    EMAIL_CANCEL_EVENT.clear()
+
     msg = update.callback_query.message
     await msg.reply_text('جاري الإرسال...')
     accounts = load_email_accounts()
@@ -564,10 +644,11 @@ async def perform_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
             subject=context.user_data['subject'],
             body=context.user_data['body'],
             attachments=attachments,
-            delay=context.user_data['delay']
+            delay=context.user_data['delay'],
+            cancel_event=EMAIL_CANCEL_EVENT
         )
         if client.verify():
-            t = Thread(target=client.send_emails)
+            t = Thread(target=client.send_emails, daemon=True)
             threads.append(t)
             t.start()
 
@@ -575,13 +656,36 @@ async def perform_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for t in threads:
         t.join()
 
+    # تنظيف المرفقات من الذاكرة المؤقتة (احتياطيًا)
+    for fp in context.user_data.get('attachments', []):
+        try: os.remove(fp)
+        except: pass
+    context.user_data.clear()
+
+    # إعلام ثم العودة للبداية
     await msg.reply_text(
-        '✅ تم الإرسال!',
+        '✅ تم الإرسال! تم تنظيف المرفقات والعودة للبداية.',
         reply_markup=InlineKeyboardMarkup([[BACK_BUTTON]])
+    )
+
+    # عرض قائمة البداية للقسمين
+    kb = [
+        [InlineKeyboardButton('قسم بلاغات ايميل', callback_data='email_reports')],
+        [InlineKeyboardButton('قسم بلاغات تيليجرام', callback_data='main_telegram')]
+    ]
+    await context.bot.send_message(
+        chat_id=msg.chat_id,
+        text='مرحبًا! اختر القسم:',
+        reply_markup=InlineKeyboardMarkup(kb)
     )
     return ConversationHandler.END
 
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    # إشارة إلغاء مهام الإرسال فورًا
+    try:
+        EMAIL_CANCEL_EVENT.set()
+    except Exception:
+        pass
     # احذف أي مرفقات تم رفعها
     for fp in context.user_data.get('attachments', []):
         try: os.remove(fp)
@@ -597,7 +701,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # إعادة رسالة البداية مع الأزرار الرئيسية
     kb = [
         [InlineKeyboardButton('قسم بلاغات ايميل', callback_data='email_reports')],
-        [InlineKeyboardButton('قسم بلاغات تيليجرام', callback_data='telegram_reports')]
+        [InlineKeyboardButton('قسم بلاغات تيليجرام', callback_data='main_telegram')]
     ]
     if update.callback_query:
         chat_id = update.callback_query.message.chat_id
@@ -643,7 +747,8 @@ async def handle_test_email_selection(update: Update, context: ContextTypes.DEFA
         'اختبار إيميل',
         'هذا بريد اختباري من البوت',
         [],
-        0
+        0,
+        EMAIL_CANCEL_EVENT
     )
     
     if not client.verify():
@@ -680,7 +785,10 @@ email_conv_handler = ConversationHandler(
             CallbackQueryHandler(back_callback, pattern='^back$')
         ],
         GET_ATTACHMENTS: [
-            MessageHandler(filters.Document.ALL | filters.PHOTO, get_attachments),
+            MessageHandler(
+                filters.Document.ALL | filters.PHOTO | filters.VIDEO | filters.AUDIO | filters.VOICE | filters.ANIMATION | filters.VIDEO_NOTE | filters.Sticker.ALL,
+                get_attachments
+            ),
             CallbackQueryHandler(next_step_callback, pattern='^next$'),
             CallbackQueryHandler(back_callback, pattern='^back$')
         ],
@@ -702,6 +810,7 @@ email_conv_handler = ConversationHandler(
         ],
     },
     fallbacks=[
+        CommandHandler('cancel', cancel),
         CallbackQueryHandler(cancel, pattern='^cancel$'),
         CallbackQueryHandler(back_callback, pattern='^back$'),
         MessageHandler(filters.TEXT & filters.Regex('^رجوع$'), cancel),

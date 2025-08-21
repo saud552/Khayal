@@ -44,18 +44,18 @@ except ImportError:
 
 # --- استيراد معالجات البريد الإلكتروني ---
 try:
-    from Email.Email_reports import email_conv_handler
+    from Email.email_reports import email_conv_handler, start_email
 except ImportError:
     logging.warning("تحذير: لم يتم العثور على وحدة البريد الإلكتروني. سيتم تجاهل هذا القسم.")
     email_conv_handler = None
+    start_email = None
 
-# --- استيراد معالجات الدعم (معطل مؤقتاً) ---
-# try:
-#     from Telegram.support_module import register_support_handlers
-# except ImportError:
-#     logging.warning("تحذير: لم يتم العثور على وحدة الدعم الخاص (support_module.py). سيتم تجاهلها.")
-register_support_handlers = None
-logging.info("ℹ️ تم تعطيل support_module مؤقتاً لحل مشكلة التعليق")
+# --- استيراد معالجات الدعم (تم التفعيل) ---
+try:
+    from Telegram.support_module import register_support_handlers
+except ImportError:
+    register_support_handlers = None
+    logging.warning("تحذير: لم يتم العثور على وحدة الدعم الخاص (support_module.py). سيتم تجاهلها.")
 
 # --- استيراد معالجات تقارير تيليجرام ---
 from Telegram.report_peer import peer_report_conv
@@ -63,6 +63,7 @@ from Telegram.report_message import message_report_conv
 from Telegram.report_photo import photo_report_conv
 from Telegram.report_sponsored import sponsored_report_conv
 from Telegram.report_mass import mass_report_conv
+from Telegram.report_bot_messages import bot_messages_report_conv
 
 # --- استيراد الدوال المشتركة ---
 from Telegram.common import get_categories, get_accounts, cancel_operation
@@ -104,7 +105,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     keyboard = [
-        [InlineKeyboardButton("📧 قسم بلاغات ايميل", callback_data="main_email")],
+        [InlineKeyboardButton("📧 قسم بلاغات ايميل", callback_data="email_reports")],
         [InlineKeyboardButton("📢 قسم بلاغات تيليجرام", callback_data="main_telegram")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -411,6 +412,7 @@ async def select_method_menu(update: Update, context: ContextTypes.DEFAULT_TYPE,
         [InlineKeyboardButton("🖼️ صورة شخصية", callback_data="method_photo")],
         [InlineKeyboardButton("📢 إعلان ممول", callback_data="method_sponsored")],
         [InlineKeyboardButton("🔥 بلاغ جماعي", callback_data="method_mass")],
+        [InlineKeyboardButton("🤖 رسائل بوت", callback_data="method_bot_messages")],
         [InlineKeyboardButton("رجوع 🔙", callback_data="back_to_proxy_option")],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -463,6 +465,15 @@ def main():
     # --- المعالجات الأساسية ---
     logger.info("📱 إضافة معالجات أساسية...")
     app.add_handler(CommandHandler("start", start))
+    # معالج /cancel عالمي لإيقاف أي مهمة جارية
+    app.add_handler(CommandHandler("cancel", cancel_operation))
+    # معالجات أزرار رئيسية عامة لضمان الاستجابة دائمًا
+    # (يتم الاعتماد أساسًا على ConversationHandler للدخول إلى قسم تيليجرام)
+    # معالجات عامة للبدء والرجوع لضمان الاستجابة حتى خارج حالة المحادثة
+    app.add_handler(CallbackQueryHandler(start_proxy_setup, pattern='^start_proxy_setup$'))
+    app.add_handler(CallbackQueryHandler(back_to_tg_menu, pattern='^back_to_tg_menu$'))
+    app.add_handler(CallbackQueryHandler(back_to_proxy_option, pattern='^back_to_proxy_option$'))
+    app.add_handler(CallbackQueryHandler(back_to_proxy_setup, pattern='^back_to_proxy_setup$'))
     logger.info("✅ تم إضافة المعالجات الأساسية")
 
     # --- معالج قسم تيليجرام (الإعداد الأولي) ---
@@ -473,7 +484,6 @@ def main():
         states={
             TELEGRAM_MENU: [
                 CallbackQueryHandler(start_proxy_setup, pattern='^start_proxy_setup$'),
-                CallbackQueryHandler(back_to_main_menu, pattern='^special_support$'),
             ],
             SELECT_PROXY_OPTION: [
                 CallbackQueryHandler(process_proxy_option, pattern='^(use_proxy|skip_proxy)$'),
@@ -495,6 +505,7 @@ def main():
         fallbacks=[
             CallbackQueryHandler(cancel_setup, pattern='^cancel_setup$'),
             CallbackQueryHandler(back_to_main_menu, pattern='^back_to_main_menu$'),
+            CommandHandler('cancel', cancel_operation),
         ],
         per_user=True,
         per_chat=False,
@@ -531,6 +542,9 @@ def main():
     
     app.add_handler(mass_report_conv)
     logger.info("✅ معالج التقارير الجماعية")
+
+    app.add_handler(bot_messages_report_conv)
+    logger.info("✅ معالج بلاغ رسائل البوت")
     
     # --- معالجات الدعم ---
     logger.info("🔧 إضافة معالجات الدعم...")

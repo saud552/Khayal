@@ -633,6 +633,8 @@ class VerifiedReporter:
                 
                 # تنفيذ جميع البلاغات بشكل متزامن
                 results = await asyncio.gather(*tasks, return_exceptions=True)
+                if not self.context.user_data.get("active", True):
+                    break
                 
                 # معالجة النتائج
                 for result in results:
@@ -975,7 +977,9 @@ async def monitor_enhanced_progress(context: ContextTypes.DEFAULT_TYPE,
             confirmed = config["progress_confirmed"]
             failed = config["progress_failed"]
             total = config["total_reports"]
-            
+        if not config.get("active", True):
+            break
+        
         completed = success + failed
         progress_percent = min(100, int((completed / total) * 100))
         

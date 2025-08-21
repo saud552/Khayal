@@ -377,6 +377,10 @@ class AdvancedReporter:
                     peer = target_obj["channel"]
                     msg_id = target_obj["message_id"]
 
+                    # تحقق من الإلغاء قبل كل خطوة ثقيلة
+                    if not self.context.user_data.get("active", True):
+                        return False
+
                     # الخطوة الأولى: طلب الخيارات دون رسالة نصية (empty)
                     result = await self.client(functions.messages.ReportRequest(
                         peer=peer,
@@ -756,7 +760,7 @@ async def run_report_process(update: Update, context: ContextTypes.DEFAULT_TYPE)
             
             await asyncio.sleep(5)
 
-        # الحساب النهائي بعد اكتمال المهام
+        # الحساب النهائي بعد اكتمال المهام أو الإلغاء
         async with config["lock"]:
             success = config["progress_success"]
             failed = config["progress_failed"]
@@ -793,6 +797,20 @@ async def run_report_process(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 text=final_text,
                 parse_mode="HTML"
             )
+        
+        # عرض قائمة البداية بعد الاكتمال
+        try:
+            start_keyboard = [
+                [InlineKeyboardButton("📧 قسم بلاغات ايميل", callback_data="email_reports")],
+                [InlineKeyboardButton("📢 قسم بلاغات تيليجرام", callback_data="main_telegram")]
+            ]
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="👋 اختر القسم للبدء من جديد:",
+                reply_markup=InlineKeyboardMarkup(start_keyboard)
+            )
+        except Exception:
+            pass
             
     except asyncio.CancelledError:
         logger.info("تم إلغاء العملية")
@@ -929,11 +947,21 @@ async def cancel_operation(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         if key in user_data:
             del user_data[key]
     
-    # إرسال رسالة الإلغاء النهائية
+    # إرسال رسالة الإلغاء النهائية مع العودة للبداية
     try:
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
             text="🛑 تم إلغاء العملية بنجاح."
+        )
+        # عرض قائمة البداية
+        keyboard = [
+            [InlineKeyboardButton("📧 قسم بلاغات ايميل", callback_data="main_email")],
+            [InlineKeyboardButton("📢 قسم بلاغات تيليجرام", callback_data="main_telegram")]
+        ]
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="👋 اختر القسم للبدء من جديد:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
     except Exception as e:
         logger.error(f"خطأ في إرسال رسالة الإلغاء: {e}")

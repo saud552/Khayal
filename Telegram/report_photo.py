@@ -257,6 +257,7 @@ photo_report_conv = ConversationHandler(
     },
     fallbacks=[
         CallbackQueryHandler(cancel_operation, pattern='^cancel$'),
+        CallbackQueryHandler(cancel_operation, pattern='^back$'),
         CommandHandler('cancel', cancel_operation)
     ],
     per_user=True,

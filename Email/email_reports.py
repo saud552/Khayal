@@ -671,7 +671,7 @@ async def perform_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # عرض قائمة البداية للقسمين
     kb = [
         [InlineKeyboardButton('قسم بلاغات ايميل', callback_data='email_reports')],
-        [InlineKeyboardButton('قسم بلاغات تيليجرام', callback_data='telegram_reports')]
+        [InlineKeyboardButton('قسم بلاغات تيليجرام', callback_data='main_telegram')]
     ]
     await context.bot.send_message(
         chat_id=msg.chat_id,
@@ -701,7 +701,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     # إعادة رسالة البداية مع الأزرار الرئيسية
     kb = [
         [InlineKeyboardButton('قسم بلاغات ايميل', callback_data='email_reports')],
-        [InlineKeyboardButton('قسم بلاغات تيليجرام', callback_data='telegram_reports')]
+        [InlineKeyboardButton('قسم بلاغات تيليجرام', callback_data='main_telegram')]
     ]
     if update.callback_query:
         chat_id = update.callback_query.message.chat_id

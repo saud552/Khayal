@@ -44,10 +44,11 @@ except ImportError:
 
 # --- استيراد معالجات البريد الإلكتروني ---
 try:
-    from Email.email_reports import email_conv_handler
+    from Email.email_reports import email_conv_handler, start_email
 except ImportError:
     logging.warning("تحذير: لم يتم العثور على وحدة البريد الإلكتروني. سيتم تجاهل هذا القسم.")
     email_conv_handler = None
+    start_email = None
 
 # --- استيراد معالجات الدعم (تم التفعيل) ---
 try:
@@ -466,6 +467,10 @@ def main():
     app.add_handler(CommandHandler("start", start))
     # معالج /cancel عالمي لإيقاف أي مهمة جارية
     app.add_handler(CommandHandler("cancel", cancel_operation))
+    # معالجات أزرار رئيسية عامة لضمان الاستجابة دائمًا
+    app.add_handler(CallbackQueryHandler(show_telegram_menu, pattern='^main_telegram$'))
+    if start_email:
+        app.add_handler(CallbackQueryHandler(start_email, pattern='^email_reports$'))
     logger.info("✅ تم إضافة المعالجات الأساسية")
 
     # --- معالج قسم تيليجرام (الإعداد الأولي) ---

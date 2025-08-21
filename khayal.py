@@ -463,6 +463,8 @@ def main():
     # --- المعالجات الأساسية ---
     logger.info("📱 إضافة معالجات أساسية...")
     app.add_handler(CommandHandler("start", start))
+    # معالج /cancel عالمي لإيقاف أي مهمة جارية
+    app.add_handler(CommandHandler("cancel", cancel_operation))
     logger.info("✅ تم إضافة المعالجات الأساسية")
 
     # --- معالج قسم تيليجرام (الإعداد الأولي) ---
@@ -495,6 +497,7 @@ def main():
         fallbacks=[
             CallbackQueryHandler(cancel_setup, pattern='^cancel_setup$'),
             CallbackQueryHandler(back_to_main_menu, pattern='^back_to_main_menu$'),
+            CommandHandler('cancel', cancel_operation),
         ],
         per_user=True,
         per_chat=False,

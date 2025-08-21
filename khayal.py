@@ -469,8 +469,6 @@ def main():
     app.add_handler(CommandHandler("cancel", cancel_operation))
     # معالجات أزرار رئيسية عامة لضمان الاستجابة دائمًا
     app.add_handler(CallbackQueryHandler(show_telegram_menu, pattern='^main_telegram$'))
-    if start_email:
-        app.add_handler(CallbackQueryHandler(start_email, pattern='^email_reports$'))
     logger.info("✅ تم إضافة المعالجات الأساسية")
 
     # --- معالج قسم تيليجرام (الإعداد الأولي) ---

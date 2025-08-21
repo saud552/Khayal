@@ -13,16 +13,18 @@ from telegram.ext import (
 from .common import cancel_operation, REPORT_TYPES
 from telethon import TelegramClient, functions, types
 from telethon.sessions import StringSession
+from config import API_ID, API_HASH
 
 # States
 (
     SELECT_REASON,
     ENTER_BOT_USERNAME,
     ENTER_DETAILS,
+    ENTER_REPORT_COUNT,
     ENTER_MSG_LIMIT,
     ENTER_DELAY,
     CONFIRM_START,
-) = range(70, 76)
+) = range(70, 77)
 
 async def start_bot_messages_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -73,6 +75,60 @@ async def process_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["message"] = update.message.text
     else:
         context.user_data["message"] = ""
+
+    keyboard = [
+        [InlineKeyboardButton("1 مرة", callback_data="count_1")],
+        [InlineKeyboardButton("2 مرات", callback_data="count_2")],
+        [InlineKeyboardButton("3 مرات", callback_data="count_3")],
+        [InlineKeyboardButton("مخصص", callback_data="count_custom")]
+    ]
+    await update.message.reply_text(
+        "🔄 <b>عدد مرات الإبلاغ</b>\n\n"
+        "اختر عدد مرات الإبلاغ من كل حساب:",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return ENTER_REPORT_COUNT
+
+async def process_report_count(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == "count_custom":
+        await query.edit_message_text(
+            "🔢 <b>عدد مخصص</b>\n\n"
+            "أدخل عدد مرات الإبلاغ من كل حساب:",
+            parse_mode="HTML"
+        )
+        return ENTER_REPORT_COUNT
+
+    count = int(query.data.split("_")[1])
+    context.user_data["reports_per_account"] = count
+
+    keyboard = [
+        [InlineKeyboardButton("10 رسائل", callback_data="limit_10")],
+        [InlineKeyboardButton("20 رسالة", callback_data="limit_20")],
+        [InlineKeyboardButton("50 رسالة", callback_data="limit_50")],
+        [InlineKeyboardButton("مخصص", callback_data="limit_custom")]
+    ]
+    await query.edit_message_text(
+        "🔢 <b>عدد الرسائل</b>\n\n"
+        "اختر عدد آخر الرسائل (من البوت) التي تريد الإبلاغ عنها من كل حساب:",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return ENTER_MSG_LIMIT
+
+async def custom_report_count(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        count = int(update.message.text)
+        if count <= 0:
+            await update.message.reply_text("❌ يجب أن يكون العدد أكبر من الصفر.")
+            return ENTER_REPORT_COUNT
+        context.user_data["reports_per_account"] = count
+    except ValueError:
+        await update.message.reply_text("❌ أدخل رقمًا صحيحًا فقط.")
+        return ENTER_REPORT_COUNT
 
     keyboard = [
         [InlineKeyboardButton("10 رسائل", callback_data="limit_10")],
@@ -160,13 +216,14 @@ async def process_delay(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # عرض ملخص وتأكيد
     cfg = context.user_data
     num_accounts = len(cfg.get("accounts", []))
-    total_reports = num_accounts * cfg.get("msg_limit", 0)
+    total_reports = num_accounts * cfg.get("msg_limit", 0) * cfg.get("reports_per_account", 1)
     
     summary = (
         f"📝 <b>ملخص العملية</b>\n\n"
         f"• البوت: {cfg.get('bot_username')}\n"
-        f"• عدد الرسائل/حساب: {cfg.get('msg_limit')}\n"
-        f"• الفاصل الزمني: {cfg.get('cycle_delay')} ثانية\n"
+        f"• الرسائل/حساب (في كل تكرار): {cfg.get('msg_limit')}\n"
+        f"• مرات التكرار/حساب: {cfg.get('reports_per_account')}\n"
+        f"• الفاصل الزمني بين التكرارات: {cfg.get('cycle_delay')} ثانية\n"
         f"• إجمالي المستهدف: {total_reports}\n\n"
         f"هل تريد بدء العملية؟"
     )
@@ -194,13 +251,14 @@ async def custom_delay(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     cfg = context.user_data
     num_accounts = len(cfg.get("accounts", []))
-    total_reports = num_accounts * cfg.get("msg_limit", 0)
+    total_reports = num_accounts * cfg.get("msg_limit", 0) * cfg.get("reports_per_account", 1)
 
     summary = (
         f"📝 <b>ملخص العملية</b>\n\n"
         f"• البوت: {cfg.get('bot_username')}\n"
-        f"• عدد الرسائل/حساب: {cfg.get('msg_limit')}\n"
-        f"• الفاصل الزمني: {cfg.get('cycle_delay')} ثانية\n"
+        f"• الرسائل/حساب (في كل تكرار): {cfg.get('msg_limit')}\n"
+        f"• مرات التكرار/حساب: {cfg.get('reports_per_account')}\n"
+        f"• الفاصل الزمني بين التكرارات: {cfg.get('cycle_delay')} ثانية\n"
         f"• إجمالي المستهدف: {total_reports}\n\n"
         f"هل تريد بدء العملية؟"
     )
@@ -222,14 +280,14 @@ async def confirm_and_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     cfg = context.user_data
     num_accounts = len(cfg.get("accounts", []))
-    total_reports = num_accounts * cfg.get("msg_limit", 0)
-    est_time = (cfg.get("cycle_delay", 1) * total_reports) / 60
+    total_reports = num_accounts * cfg.get("msg_limit", 0) * cfg.get("reports_per_account", 1)
+    est_time = (cfg.get("cycle_delay", 1) * cfg.get("reports_per_account", 1))
 
     msg = await query.edit_message_text(
         f"⏳ <b>جاري بدء عملية الإبلاغ عن رسائل البوت...</b>\n\n"
         f"• عدد الحسابات: {num_accounts}\n"
-        f"• إجمالي الرسائل المستهدفة: {total_reports}\n"
-        f"• الوقت المتوقع: {est_time:.1f} دقيقة\n\n"
+        f"• إجمالي الرسائل المستهدفة (تقريبي): {total_reports}\n"
+        f"• الوقت المتوقع بين تكرارات الحساب: {est_time:.1f} دقيقة\n\n"
         "سيتم تحديث التقدم هنا...",
         parse_mode="HTML"
     )
@@ -246,6 +304,7 @@ async def run_bot_messages_report(update: Update, context: ContextTypes.DEFAULT_
     msg_limit = cfg.get("msg_limit", 10)
     cycle_delay = cfg.get("cycle_delay", 5)
     detail_message = cfg.get("message", "")
+    reports_per_account = cfg.get("reports_per_account", 1)
 
     # تتبع
     cfg.setdefault("lock", asyncio.Lock())
@@ -255,53 +314,57 @@ async def run_bot_messages_report(update: Update, context: ContextTypes.DEFAULT_
     async def report_for_session(session):
         if not context.user_data.get("active", True):
             return
-        client = None
-        try:
-            client = TelegramClient(StringSession(session["session"]), context.bot_data.get("api_id"), context.bot_data.get("api_hash"))
-        except Exception:
-            # استخدام القيم من config.common imports غير متاحة هنا مباشرة، نترك Telethon بدونها ستفشل
-            client = TelegramClient(StringSession(session["session"]), 0, "")
+        client = TelegramClient(StringSession(session["session"]), API_ID, API_HASH)
         try:
             await client.connect()
             entity = await client.get_entity(bot_username)
 
-            # جلب آخر الرسائل من البوت فقط
-            bot_messages = []
-            async for m in client.iter_messages(entity, limit=msg_limit):
-                if m.from_id and getattr(m.from_id, 'user_id', None) == entity.id:
-                    bot_messages.append(m.id)
-            if not bot_messages:
-                async with cfg["lock"]:
-                    cfg["progress_failed"] += 1
-                return
+            for rep in range(reports_per_account):
+                if not context.user_data.get("active", True):
+                    break
 
-            # طلب الخيارات أولاً
-            result = await client(functions.messages.ReportRequest(
-                peer=entity,
-                id=bot_messages,
-                option=b'',
-                message=''
-            ))
+                # جلب آخر الرسائل من البوت فقط (قد تختلف من حساب لآخر)
+                bot_messages = []
+                async for m in client.iter_messages(entity, limit=msg_limit):
+                    if m.from_id and getattr(m.from_id, 'user_id', None) == entity.id:
+                        bot_messages.append(m.id)
+                if not bot_messages:
+                    async with cfg["lock"]:
+                        cfg["progress_failed"] += 1
+                else:
+                    # طلب الخيارات أولاً
+                    result = await client(functions.messages.ReportRequest(
+                        peer=entity,
+                        id=bot_messages,
+                        option=b'',
+                        message=''
+                    ))
 
-            chosen_option = None
-            if isinstance(result, types.ReportResultChooseOption):
-                # محاولة المطابقة بالاسم كما في common.py
-                for opt in result.options:
-                    if reason_obj.__class__.__name__.lower().find(opt.text.lower()) != -1 or reason_obj.__class__.__name__.lower() == opt.text.lower():
-                        chosen_option = opt.option
-                        break
-                if not chosen_option and result.options:
-                    chosen_option = result.options[0].option
+                    chosen_option = None
+                    if isinstance(result, types.ReportResultChooseOption):
+                        # محاولة المطابقة بالاسم كما في common.py
+                        for opt in result.options:
+                            if reason_obj.__class__.__name__.lower().find(opt.text.lower()) != -1 or reason_obj.__class__.__name__.lower() == opt.text.lower():
+                                chosen_option = opt.option
+                                break
+                        if not chosen_option and result.options:
+                            chosen_option = result.options[0].option
 
-                result = await client(functions.messages.ReportRequest(
-                    peer=entity,
-                    id=bot_messages,
-                    option=chosen_option or b'',
-                    message=detail_message
-                ))
-            
-            async with cfg["lock"]:
-                cfg["progress_success"] += len(bot_messages)
+                        await client(functions.messages.ReportRequest(
+                            peer=entity,
+                            id=bot_messages,
+                            option=chosen_option or b'',
+                            message=detail_message
+                        ))
+                    async with cfg["lock"]:
+                        cfg["progress_success"] += len(bot_messages)
+
+                # تأخير بين تكرارات الحساب الواحد
+                if rep < reports_per_account - 1:
+                    for _ in range(int(cycle_delay)):
+                        if not context.user_data.get("active", True):
+                            break
+                        await asyncio.sleep(1)
         except Exception:
             async with cfg["lock"]:
                 cfg["progress_failed"] += 1
@@ -309,6 +372,7 @@ async def run_bot_messages_report(update: Update, context: ContextTypes.DEFAULT_
             if client and client.is_connected():
                 await client.disconnect()
 
+    # تشغيل كل حساب بشكل مستقل
     tasks = []
     for session in sessions:
         if not context.user_data.get("active", True):
@@ -316,7 +380,6 @@ async def run_bot_messages_report(update: Update, context: ContextTypes.DEFAULT_
         t = asyncio.create_task(report_for_session(session))
         context.user_data.setdefault("tasks", []).append(t)
         tasks.append(t)
-        await asyncio.sleep(cycle_delay)
 
     for t in tasks:
         try:
@@ -325,8 +388,9 @@ async def run_bot_messages_report(update: Update, context: ContextTypes.DEFAULT_
             pass
 
     # تحديث نهائي
-    success = cfg.get("progress_success", 0)
-    failed = cfg.get("progress_failed", 0)
+    async with cfg["lock"]:
+        success = cfg.get("progress_success", 0)
+        failed = cfg.get("progress_failed", 0)
     text = (
         f"✅ <b>اكتملت عملية إبلاغ رسائل البوت</b>\n\n"
         f"• الناجحة: {success}\n"
@@ -362,6 +426,10 @@ bot_messages_report_conv = ConversationHandler(
         SELECT_REASON: [CallbackQueryHandler(select_reason, pattern='^reason_')],
         ENTER_BOT_USERNAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_bot_username)],
         ENTER_DETAILS: [MessageHandler(filters.TEXT | filters.COMMAND, process_details)],
+        ENTER_REPORT_COUNT: [
+            CallbackQueryHandler(process_report_count, pattern='^count_'),
+            MessageHandler(filters.TEXT & ~filters.COMMAND, custom_report_count)
+        ],
         ENTER_MSG_LIMIT: [
             CallbackQueryHandler(process_msg_limit, pattern='^limit_'),
             MessageHandler(filters.TEXT & ~filters.COMMAND, custom_msg_limit)

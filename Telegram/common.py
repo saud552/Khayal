@@ -797,6 +797,20 @@ async def run_report_process(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 text=final_text,
                 parse_mode="HTML"
             )
+        
+        # عرض قائمة البداية بعد الاكتمال
+        try:
+            start_keyboard = [
+                [InlineKeyboardButton("📧 قسم بلاغات ايميل", callback_data="email_reports")],
+                [InlineKeyboardButton("📢 قسم بلاغات تيليجرام", callback_data="main_telegram")]
+            ]
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="👋 اختر القسم للبدء من جديد:",
+                reply_markup=InlineKeyboardMarkup(start_keyboard)
+            )
+        except Exception:
+            pass
             
     except asyncio.CancelledError:
         logger.info("تم إلغاء العملية")

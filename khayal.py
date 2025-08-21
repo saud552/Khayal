@@ -104,7 +104,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     keyboard = [
-        [InlineKeyboardButton("📧 قسم بلاغات ايميل", callback_data="main_email")],
+        [InlineKeyboardButton("📧 قسم بلاغات ايميل", callback_data="email_reports")],
         [InlineKeyboardButton("📢 قسم بلاغات تيليجرام", callback_data="main_telegram")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)

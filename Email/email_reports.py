@@ -12,6 +12,9 @@ from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
 from email import encoders
 from time import sleep
+import mimetypes
+from email.utils import make_msgid, formatdate
+import uuid
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -131,22 +134,54 @@ class SMTPClient:
             server = smtplib.SMTP('smtp.gmail.com', 587)
             server.starttls()
             server.login(self.email, self.password)
-            for _ in range(self.count):
-                msg = MIMEMultipart()
-                msg['From'] = self.email
-                msg['To'] = ', '.join(self.targets)
-                msg['Subject'] = self.subject
-                msg.attach(MIMEText(self.body, 'plain'))
-                for path in self.attachments:
-                    if os.path.exists(path):
-                        part = MIMEBase('application', 'octet-stream')
-                        with open(path, 'rb') as f:
-                            part.set_payload(f.read())
-                        encoders.encode_base64(part)
+            for i in range(self.count):
+                for target in self.targets:
+                    msg = MIMEMultipart()
+                    msg['From'] = self.email
+                    msg['To'] = target
+                    # إضافة فريد للموضوع لتفادي التجميع في نفس المحادثة
+                    subject_suffix = f" [{i+1}]" if self.count > 1 else ""
+                    msg['Subject'] = f"{self.subject}{subject_suffix}"
+                    msg['Message-ID'] = make_msgid()
+                    msg['Date'] = formatdate(localtime=True)
+                    msg.attach(MIMEText(self.body or '', 'plain', 'utf-8'))
+
+                    for path in self.attachments:
+                        if not os.path.exists(path):
+                            continue
+                        ctype, encoding = mimetypes.guess_type(path)
+                        if ctype is None or encoding is not None:
+                            ctype = 'application/octet-stream'
+                        maintype, subtype = ctype.split('/', 1)
+                        try:
+                            if maintype == 'text':
+                                from email.mime.text import MIMEText as _MIMEText
+                                with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+                                    part = _MIMEText(f.read(), _subtype=subtype, _charset='utf-8')
+                            elif maintype == 'image':
+                                from email.mime.image import MIMEImage
+                                with open(path, 'rb') as f:
+                                    part = MIMEImage(f.read(), _subtype=subtype)
+                            elif maintype == 'audio':
+                                from email.mime.audio import MIMEAudio
+                                with open(path, 'rb') as f:
+                                    part = MIMEAudio(f.read(), _subtype=subtype)
+                            else:
+                                with open(path, 'rb') as f:
+                                    part = MIMEBase(maintype, subtype)
+                                    part.set_payload(f.read())
+                                    encoders.encode_base64(part)
+                        except Exception:
+                            # fallback
+                            with open(path, 'rb') as f:
+                                part = MIMEBase('application', 'octet-stream')
+                                part.set_payload(f.read())
+                                encoders.encode_base64(part)
                         part.add_header('Content-Disposition', f'attachment; filename="{os.path.basename(path)}"')
                         msg.attach(part)
-                server.sendmail(self.email, self.targets, msg.as_string())
-                sleep(self.delay)
+
+                    server.sendmail(self.email, [target], msg.as_string())
+                    sleep(self.delay)
             server.quit()
             return True
         except Exception as e:
@@ -476,19 +511,42 @@ async def get_attachments(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await cancel(update, context)
     os.makedirs(TEMP_DIR, exist_ok=True)
 
+    file = None
+    name = None
+
     if update.message.document:
         file = await update.message.document.get_file()
-        name = update.message.document.file_name
+        name = update.message.document.file_name or f"document_{update.message.document.file_unique_id}"
     elif update.message.photo:
-        file = await update.message.photo[-1].get_file()
-        name = f"photo_{file.file_id}.jpg"
+        size = update.message.photo[-1]
+        file = await size.get_file()
+        ext = os.path.splitext(getattr(file, 'file_path', '') or '')[1] or '.jpg'
+        name = f"photo_{size.file_unique_id}{ext}"
+    elif update.message.video:
+        file = await update.message.video.get_file()
+        name = update.message.video.file_name or f"video_{update.message.video.file_unique_id}.mp4"
+    elif update.message.animation:
+        file = await update.message.animation.get_file()
+        name = update.message.animation.file_name or f"animation_{update.message.animation.file_unique_id}.gif"
+    elif update.message.audio:
+        file = await update.message.audio.get_file()
+        name = update.message.audio.file_name or f"audio_{update.message.audio.file_unique_id}.mp3"
+    elif update.message.voice:
+        file = await update.message.voice.get_file()
+        name = f"voice_{update.message.voice.file_unique_id}.ogg"
+    elif getattr(update.message, 'video_note', None):
+        file = await update.message.video_note.get_file()
+        name = f"video_note_{update.message.video_note.file_unique_id}.mp4"
+    elif update.message.sticker:
+        file = await update.message.sticker.get_file()
+        name = f"sticker_{update.message.sticker.file_unique_id}.webp"
     else:
         await update.message.reply_text('نوع المرفق غير مدعوم.',
             reply_markup=InlineKeyboardMarkup([[BACK_BUTTON]])
         )
         return GET_ATTACHMENTS
 
-    path = os.path.join(TEMP_DIR, f"{file.file_id}_{name}")
+    path = os.path.join(TEMP_DIR, name)
     await file.download_to_drive(path)
     context.user_data.setdefault('attachments', []).append(path)
 
@@ -575,9 +633,27 @@ async def perform_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for t in threads:
         t.join()
 
+    # تنظيف المرفقات من الذاكرة المؤقتة (احتياطيًا)
+    for fp in context.user_data.get('attachments', []):
+        try: os.remove(fp)
+        except: pass
+    context.user_data.clear()
+
+    # إعلام ثم العودة للبداية
     await msg.reply_text(
-        '✅ تم الإرسال!',
+        '✅ تم الإرسال! تم تنظيف المرفقات والعودة للبداية.',
         reply_markup=InlineKeyboardMarkup([[BACK_BUTTON]])
+    )
+
+    # عرض قائمة البداية للقسمين
+    kb = [
+        [InlineKeyboardButton('قسم بلاغات ايميل', callback_data='email_reports')],
+        [InlineKeyboardButton('قسم بلاغات تيليجرام', callback_data='telegram_reports')]
+    ]
+    await context.bot.send_message(
+        chat_id=msg.chat_id,
+        text='مرحبًا! اختر القسم:',
+        reply_markup=InlineKeyboardMarkup(kb)
     )
     return ConversationHandler.END
 
@@ -680,7 +756,10 @@ email_conv_handler = ConversationHandler(
             CallbackQueryHandler(back_callback, pattern='^back$')
         ],
         GET_ATTACHMENTS: [
-            MessageHandler(filters.Document.ALL | filters.PHOTO, get_attachments),
+            MessageHandler(
+                filters.Document.ALL | filters.PHOTO | filters.VIDEO | filters.AUDIO | filters.VOICE | filters.ANIMATION | filters.VIDEO_NOTE | filters.Sticker.ALL,
+                get_attachments
+            ),
             CallbackQueryHandler(next_step_callback, pattern='^next$'),
             CallbackQueryHandler(back_callback, pattern='^back$')
         ],

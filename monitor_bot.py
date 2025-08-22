@@ -21,13 +21,9 @@ def check_bot_status():
         return False, None
 
 def get_recent_logs(num_lines=10):
-    """جلب آخر السجلات"""
-    try:
-        with open('/workspace/bot.log', 'r', encoding='utf-8') as f:
-            lines = f.readlines()
-            return lines[-num_lines:] if len(lines) >= num_lines else lines
-    except:
-        return []
+    """جلب آخر السجلات - معطل لتوفير الذاكرة"""
+    # لا نستخدم ملفات السجلات لتوفير الذاكرة
+    return ["تم تعطيل ملفات السجلات لتوفير الذاكرة"]
 
 def monitor_loop():
     """حلقة المراقبة الرئيسية"""

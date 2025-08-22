@@ -43,13 +43,8 @@ try:
 except ImportError:
     DB_PATH = 'accounts.db'  # قيمة افتراضية
 
-# إعداد نظام تسجيل مفصل للتتبع
-detailed_logger = logging.getLogger('detailed_reporter')
-detailed_handler = logging.FileHandler('detailed_reports.log', encoding='utf-8')
-detailed_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-detailed_handler.setFormatter(detailed_formatter)
-detailed_logger.addHandler(detailed_handler)
-detailed_logger.setLevel(logging.INFO)
+# تم إزالة نظام السجلات لتوفير الذاكرة
+# سيتم استخدام print() فقط للرسائل المهمة
 
 # === الثوابت المحسنة ===
 PROXY_CHECK_TIMEOUT = 25  # ثانية
@@ -99,8 +94,22 @@ class Socks5ProxyChecker:
         
     async def deep_proxy_test(self, session_str: str, proxy_info: dict) -> dict:
         """اختبار بروكسي Socks5 مع فحوصات متعددة"""
-        import socks
-        import socket
+        try:
+            import socks
+            import socket
+        except ImportError:
+            logger.error("مكتبة PySocks غير مثبتة. يرجى تثبيتها: pip install PySocks")
+            result = proxy_info.copy()
+            result.update({
+                "status": "error",
+                "ping": 0,
+                "response_time": 0,
+                "quality_score": 0,
+                "last_check": int(time.time()),
+                "connection_successful": False,
+                "error": "مكتبة PySocks غير مثبتة"
+            })
+            return result
         
         result = proxy_info.copy()
         client = None
@@ -175,7 +184,7 @@ class Socks5ProxyChecker:
                 "error": None
             })
             
-            detailed_logger.info(f"✅ بروكسي Socks5 نشط: {proxy_info['host']}:{proxy_info['port']} - ping: {ping}ms")
+            # تم إزالة السجل لتوفير الذاكرة
             
         except asyncio.TimeoutError:
             result.update({
@@ -218,9 +227,12 @@ class Socks5ProxyChecker:
             
         finally:
             # إعادة تعيين الإعدادات
-            socks.set_default_proxy()
-            socket.socket = original_socket
-            
+            try:
+                socks.set_default_proxy()
+                socket.socket = original_socket
+            except:
+                pass
+                
             if client and client.is_connected():
                 try:
                     await client.disconnect()
@@ -231,48 +243,72 @@ class Socks5ProxyChecker:
     
     async def batch_check_proxies(self, session_str: str, proxies: List[dict]) -> List[dict]:
         """فحص مجموعة من البروكسيات بشكل متوازي"""
-        semaphore = asyncio.Semaphore(self.concurrent_checks)
-        
-        async def check_single(proxy):
-            async with semaphore:
-                return await self.deep_proxy_test(session_str, proxy)
-        
-        tasks = [check_single(proxy) for proxy in proxies]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        
-        valid_results = []
-        for i, result in enumerate(results):
-            if isinstance(result, Exception):
-                proxy_key = f"{proxies[i]['host']}:{proxies[i]['port']}"
-                logger.error(f"خطأ في فحص البروكسي Socks5 {proxy_key}: {result}")
-                proxies[i].update({
+        try:
+            semaphore = asyncio.Semaphore(self.concurrent_checks)
+            
+            async def check_single(proxy):
+                async with semaphore:
+                    return await self.deep_proxy_test(session_str, proxy)
+            
+            tasks = [check_single(proxy) for proxy in proxies]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            valid_results = []
+            for i, result in enumerate(results):
+                if isinstance(result, Exception):
+                    proxy_key = f"{proxies[i]['host']}:{proxies[i]['port']}"
+                    logger.error(f"خطأ في فحص البروكسي Socks5 {proxy_key}: {result}")
+                    proxies[i].update({
+                        "status": "error",
+                        "error": str(result),
+                        "quality_score": 0
+                    })
+                    valid_results.append(proxies[i])
+                else:
+                    valid_results.append(result)
+                    
+            return valid_results
+            
+        except Exception as e:
+            logger.error(f"❌ خطأ جسيم في batch_check_proxies: {e}")
+            # إرجاع البروكسيات مع حالة خطأ
+            for proxy in proxies:
+                proxy.update({
                     "status": "error",
-                    "error": str(result),
+                    "error": str(e),
                     "quality_score": 0
                 })
-                valid_results.append(proxies[i])
-            else:
-                valid_results.append(result)
-                
-        return valid_results
+            return proxies
     
     def get_best_proxies(self, proxies: List[dict], count: int = 5) -> List[dict]:
         """الحصول على أفضل البروكسيات مرتبة حسب الجودة"""
-        active_proxies = [p for p in proxies if p.get('status') == 'active']
-        
-        # ترتيب حسب نقاط الجودة ثم السرعة
-        sorted_proxies = sorted(
-            active_proxies,
-            key=lambda x: (x.get('quality_score', 0), -x.get('ping', 9999)),
-            reverse=True
-        )
-        
-        return sorted_proxies[:count]
+        try:
+            active_proxies = [p for p in proxies if p.get('status') == 'active']
+            
+            # ترتيب حسب نقاط الجودة ثم السرعة
+            sorted_proxies = sorted(
+                active_proxies,
+                key=lambda x: (x.get('quality_score', 0), -x.get('ping', 9999)),
+                reverse=True
+            )
+            
+            return sorted_proxies[:count]
+            
+        except Exception as e:
+            logger.error(f"❌ خطأ في get_best_proxies: {e}")
+            # إرجاع قائمة فارغة في حالة الخطأ
+            return []
     
     def needs_recheck(self, proxy_info: dict) -> bool:
         """تحديد إذا كان البروكسي يحتاج إعادة فحص"""
-        last_check = proxy_info.get('last_check', 0)
-        return (time.time() - last_check) > PROXY_RECHECK_INTERVAL
+        try:
+            last_check = proxy_info.get('last_check', 0)
+            return (time.time() - last_check) > PROXY_RECHECK_INTERVAL
+            
+        except Exception as e:
+            logger.error(f"❌ خطأ في needs_recheck: {e}")
+            # في حالة الخطأ، نفترض أن البروكسي يحتاج إعادة فحص
+            return True
 
 # إنشاء نسخة عامة من مدقق البروكسي Socks5
 socks5_proxy_checker = Socks5ProxyChecker()
@@ -297,8 +333,9 @@ def parse_socks5_proxy(proxy_string: str) -> dict | None:
             return None
             
         return {'host': host, 'port': port, 'type': 'socks5'}
+        
     except Exception as e:
-        logger.error(f"خطأ في تحليل بروكسي Socks5: {e}")
+        logger.error(f"❌ خطأ في تحليل بروكسي Socks5: {e}")
         return None
 
 class VerifiedReporter:
@@ -323,53 +360,59 @@ class VerifiedReporter:
         try:
             # تحليل نتيجة البلاغ
             if isinstance(report_result, types.ReportResultAddComment):
-                detailed_logger.info(f"✅ تم قبول البلاغ مع طلب تعليق - الهدف: {target}")
+                # تم إزالة السجل لتوفير الذاكرة
                 return True
                 
             elif isinstance(report_result, types.ReportResultChooseOption):
-                detailed_logger.info(f"✅ تم قبول البلاغ مع خيارات - الهدف: {target}")
+                # تم إزالة السجل لتوفير الذاكرة
                 return True
                 
             elif hasattr(report_result, 'success') and report_result.success:
-                detailed_logger.info(f"✅ تم قبول البلاغ بنجاح - الهدف: {target}")
+                # تم إزالة السجل لتوفير الذاكرة
                 return True
                 
             # إذا كانت النتيجة True أو None (نجاح ضمني)
             elif report_result is True or report_result is None:
-                detailed_logger.info(f"✅ تم إرسال البلاغ (نجاح ضمني) - الهدف: {target}")
+                # تم إزالة السجل لتوفير الذاكرة
                 return True
                 
             else:
-                detailed_logger.warning(f"⚠️ نتيجة غير مؤكدة للبلاغ - الهدف: {target} - النتيجة: {type(report_result)}")
+                # تم إزالة السجل لتوفير الذاكرة
                 return False
                 
         except Exception as e:
-            detailed_logger.error(f"❌ خطأ في التحقق من البلاغ - الهدف: {target} - الخطأ: {e}")
+            # تم إزالة السجل لتوفير الذاكرة
             return False
     
     async def intelligent_delay(self, base_delay: float):
         """تأخير ذكي يتكيف مع نشاط الحساب"""
-        if self.stats["last_report"]:
-            elapsed = time.time() - self.stats["last_report"]
-            
-            # تقليل التأخير إذا مر وقت كافي
-            if elapsed > 60:  # إذا مر أكثر من دقيقة
-                adjusted_delay = base_delay * 0.5
-            elif elapsed > 30:  # إذا مر أكثر من 30 ثانية
-                adjusted_delay = base_delay * 0.7
-            else:
-                adjusted_delay = base_delay
+        try:
+            if self.stats["last_report"]:
+                elapsed = time.time() - self.stats["last_report"]
                 
-            # إضافة عشوائية للتنويع
-            randomized_delay = adjusted_delay + random.uniform(0, adjusted_delay * 0.3)
-            
-            if elapsed < randomized_delay:
-                wait_time = randomized_delay - elapsed
-                detailed_logger.info(f"⏳ تأخير ذكي: {wait_time:.1f} ثانية")
-                await asyncio.sleep(wait_time)
+                # تقليل التأخير إذا مر وقت كافي
+                if elapsed > 60:  # إذا مر أكثر من دقيقة
+                    adjusted_delay = base_delay * 0.5
+                elif elapsed > 30:  # إذا مر أكثر من 30 ثانية
+                    adjusted_delay = base_delay * 0.7
+                else:
+                    adjusted_delay = base_delay
+                    
+                # إضافة عشوائية للتنويع
+                randomized_delay = adjusted_delay + random.uniform(0, adjusted_delay * 0.3)
                 
-        self.stats["last_report"] = time.time()
-        self.last_activity = time.time()
+                if elapsed < randomized_delay:
+                    wait_time = randomized_delay - elapsed
+                    # تم إزالة السجل لتوفير الذاكرة
+                    await asyncio.sleep(wait_time)
+                    
+            self.stats["last_report"] = time.time()
+            self.last_activity = time.time()
+            
+        except Exception as e:
+            # تم إزالة السجل لتوفير الذاكرة
+            # في حالة الخطأ، نستخدم التأخير الأساسي
+            await asyncio.sleep(base_delay)
     
     async def resolve_target_enhanced(self, target: Any) -> dict | None:
         """حل الهدف مع معلومات إضافية للتتبع"""
@@ -439,7 +482,7 @@ class VerifiedReporter:
                     })
                     return target_info
                 except Exception as e:
-                    detailed_logger.error(f"❌ فشل في حل الرابط {target}: {e}")
+                    # تم إزالة السجل لتوفير الذاكرة
                     return None
             
             # الحالة 3: معرف مستخدم أو قناة مباشر
@@ -452,11 +495,11 @@ class VerifiedReporter:
                 })
                 return target_info
             except Exception as e:
-                detailed_logger.error(f"❌ فشل في حل الهدف {target}: {e}")
+                # تم إزالة السجل لتوفير الذاكرة
                 return None
                 
         except Exception as e:
-            detailed_logger.error(f"❌ خطأ عام في حل الهدف {target}: {e}")
+            # تم إزالة السجل لتوفير الذاكرة
             return None
     
     def parse_message_link(self, link: str) -> dict | None:
@@ -481,181 +524,193 @@ class VerifiedReporter:
                 }
             
             return None
+            
         except Exception as e:
-            logger.error(f"خطأ في تحليل رابط الرسالة: {e}")
+            logger.error(f"❌ خطأ في تحليل رابط الرسالة: {e}")
             return None
     
     async def execute_verified_report(self, target: Any, reason_obj: Any, method_type: str, 
                                     message: str, reports_count: int, cycle_delay: float) -> dict:
         """تنفيذ بلاغ محقق مع تأكيد النجاح"""
         
-        # فحص حد البلاغات لكل جلسة
-        if self.session_reports_count >= MAX_REPORTS_PER_SESSION:
-            raise RateLimitExceeded(f"تم تجاوز الحد الأقصى {MAX_REPORTS_PER_SESSION} بلاغ لكل جلسة")
-        
-        target_info = await self.resolve_target_enhanced(target)
-        if not target_info or not target_info["resolved"]:
-            self.stats["failed"] += reports_count
-            return {"success": False, "error": "فشل في حل الهدف"}
-        
-        report_results = []
-        
-        for i in range(reports_count):
-            if not self.context.user_data.get("active", True):
-                break
-                
-            try:
-                await self.intelligent_delay(cycle_delay)
-                
-                # إنشاء معرف فريد للبلاغ
-                report_id = hashlib.md5(
-                    f"{target}_{method_type}_{time.time()}_{i}".encode()
-                ).hexdigest()[:8]
-                
-                result = None
-                
-                if method_type == "peer":
-                    result = await self.client(functions.account.ReportPeerRequest(
-                        peer=target_info["resolved"],
-                        reason=reason_obj,
-                        message=message
-                    ))
+        try:
+            # فحص حد البلاغات لكل جلسة
+            if self.session_reports_count >= MAX_REPORTS_PER_SESSION:
+                raise RateLimitExceeded(f"تم تجاوز الحد الأقصى {MAX_REPORTS_PER_SESSION} بلاغ لكل جلسة")
+            
+            target_info = await self.resolve_target_enhanced(target)
+            if not target_info or not target_info["resolved"]:
+                self.stats["failed"] += reports_count
+                return {"success": False, "error": "فشل في حل الهدف"}
+            
+            report_results = []
+            
+            for i in range(reports_count):
+                if not self.context.user_data.get("active", True):
+                    break
                     
-                elif method_type == "message":
-                    peer = target_info["resolved"]["channel"]
-                    msg_id = target_info["resolved"]["message_id"]
+                try:
+                    await self.intelligent_delay(cycle_delay)
                     
-                    # خطوة أولى: طلب الخيارات
-                    result = await self.client(functions.messages.ReportRequest(
-                        peer=peer,
-                        id=[msg_id],
-                        option=b'',
-                        message=''
-                    ))
+                    # إنشاء معرف فريد للبلاغ
+                    report_id = hashlib.md5(
+                        f"{target}_{method_type}_{time.time()}_{i}".encode()
+                    ).hexdigest()[:8]
                     
-                    # خطوة ثانية: إرسال البلاغ مع الخيار
-                    if isinstance(result, types.ReportResultChooseOption) and result.options:
-                        chosen_option = result.options[0].option
+                    result = None
+                    
+                    if method_type == "peer":
+                        result = await self.client(functions.account.ReportPeerRequest(
+                            peer=target_info["resolved"],
+                            reason=reason_obj,
+                            message=message
+                        ))
+                        
+                    elif method_type == "message":
+                        peer = target_info["resolved"]["channel"]
+                        msg_id = target_info["resolved"]["message_id"]
+                        
+                        # خطوة أولى: طلب الخيارات
                         result = await self.client(functions.messages.ReportRequest(
                             peer=peer,
                             id=[msg_id],
-                            option=chosen_option,
-                            message=message
+                            option=b'',
+                            message=''
                         ))
-                
-                # التحقق من نجاح البلاغ
-                verified = await self.verify_report_success(result, str(target), method_type)
-                
-                if verified:
-                    self.stats["success"] += 1
-                    self.stats["confirmed"] += 1
-                    self.session_reports_count += 1
+                        
+                        # خطوة ثانية: إرسال البلاغ مع الخيار
+                        if isinstance(result, types.ReportResultChooseOption) and result.options:
+                            chosen_option = result.options[0].option
+                            result = await self.client(functions.messages.ReportRequest(
+                                peer=peer,
+                                id=[msg_id],
+                                option=chosen_option,
+                                message=message
+                            ))
                     
-                    report_info = {
-                        "id": report_id,
-                        "target": str(target),
-                        "method": method_type,
-                        "timestamp": time.time(),
-                        "verified": True
-                    }
+                    # التحقق من نجاح البلاغ
+                    verified = await self.verify_report_success(result, str(target), method_type)
                     
-                    self.stats["report_ids"].append(report_info)
-                    report_results.append(report_info)
+                    if verified:
+                        self.stats["success"] += 1
+                        self.stats["confirmed"] += 1
+                        self.session_reports_count += 1
+                        
+                        report_info = {
+                            "id": report_id,
+                            "target": str(target),
+                            "method": method_type,
+                            "timestamp": time.time(),
+                            "verified": True
+                        }
+                        
+                        self.stats["report_ids"].append(report_info)
+                        report_results.append(report_info)
+                        
+                        # تم إزالة السجل لتوفير الذاكرة
+                        
+                    else:
+                        self.stats["unconfirmed"] += 1
+                        # تم إزالة السجل لتوفير الذاكرة
+                        
+                except ChatWriteForbiddenError:
+                    # تم إزالة السجل لتوفير الذاكرة
+                    self.stats["failed"] += 1
                     
-                    detailed_logger.info(f"✅ بلاغ محقق #{report_id} - الهدف: {target} - الطريقة: {method_type}")
+                except UserBannedInChannelError:
+                    # تم إزالة السجل لتوفير الذاكرة
+                    self.stats["failed"] += 1
                     
-                else:
-                    self.stats["unconfirmed"] += 1
-                    detailed_logger.warning(f"⚠️ بلاغ غير محقق - الهدف: {target}")
+                except MessageIdInvalidError:
+                    # تم إزالة السجل لتوفير الذاكرة
+                    self.stats["failed"] += 1
                     
-            except ChatWriteForbiddenError:
-                detailed_logger.error(f"❌ ممنوع من الكتابة في الدردشة - الهدف: {target}")
-                self.stats["failed"] += 1
-                
-            except UserBannedInChannelError:
-                detailed_logger.error(f"❌ المستخدم محظور في القناة - الهدف: {target}")
-                self.stats["failed"] += 1
-                
-            except MessageIdInvalidError:
-                detailed_logger.error(f"❌ معرف رسالة غير صالح - الهدف: {target}")
-                self.stats["failed"] += 1
-                
-            except FloodWaitError as e:
-                detailed_logger.warning(f"⏳ حد المعدل: انتظار {e.seconds} ثانية")
-                await asyncio.sleep(e.seconds + 1)
-                
-            except Exception as e:
-                detailed_logger.error(f"❌ خطأ في البلاغ - الهدف: {target} - الخطأ: {e}")
-                self.stats["failed"] += 1
-        
-        return {
-            "success": len(report_results) > 0,
-            "verified_reports": len(report_results),
-            "total_attempts": reports_count,
-            "report_ids": report_results
-        }
+                except FloodWaitError as e:
+                    # تم إزالة السجل لتوفير الذاكرة
+                    await asyncio.sleep(e.seconds + 1)
+                    
+                except Exception as e:
+                    # تم إزالة السجل لتوفير الذاكرة
+                    self.stats["failed"] += 1
+            
+            return {
+                "success": len(report_results) > 0,
+                "verified_reports": len(report_results),
+                "total_attempts": reports_count,
+                "report_ids": report_results
+            }
+            
+        except Exception as e:
+            # تم إزالة السجل لتوفير الذاكرة
+            return {"success": False, "error": str(e)}
     
     # وظيفة جديدة للإبلاغ الجماعي
     async def execute_batch_report(self, targets: List[Any], reason_obj: Any, method_type: str, 
                                  message: str, reports_count: int, cycle_delay: float) -> dict:
         """تنفيذ بلاغ جماعي على جميع الأهداف في نفس الوقت"""
-        if self.session_reports_count + (len(targets) * reports_count) > MAX_REPORTS_PER_SESSION:
-            raise RateLimitExceeded(f"تم تجاوز الحد الأقصى {MAX_REPORTS_PER_SESSION} بلاغ لكل جلسة")
-        
-        # حل جميع الأهداف أولاً
-        target_infos = []
-        for target in targets:
-            target_info = await self.resolve_target_enhanced(target)
-            if target_info and target_info["resolved"]:
-                target_infos.append(target_info)
-        
-        if not target_infos:
-            self.stats["failed"] += len(targets) * reports_count
-            return {"success": False, "error": "فشل في حل الأهداف"}
-        
-        report_results = []
-        
-        # تنفيذ دورات الإبلاغ
-        for rep in range(reports_count):
-            if not self.context.user_data.get("active", True):
-                break
-                
-            try:
-                # تأخير ذكي بين الدورات
-                await self.intelligent_delay(cycle_delay)
-                
-                # إنشاء مهام للإبلاغ على جميع الأهداف في نفس الوقت
-                tasks = []
-                for target_info in target_infos:
-                    tasks.append(
-                        self._report_single_target(target_info, reason_obj, method_type, message)
-                    )
-                
-                # تنفيذ جميع البلاغات بشكل متزامن
-                results = await asyncio.gather(*tasks, return_exceptions=True)
+        try:
+            if self.session_reports_count + (len(targets) * reports_count) > MAX_REPORTS_PER_SESSION:
+                raise RateLimitExceeded(f"تم تجاوز الحد الأقصى {MAX_REPORTS_PER_SESSION} بلاغ لكل جلسة")
+            
+            # حل جميع الأهداف أولاً
+            target_infos = []
+            for target in targets:
+                target_info = await self.resolve_target_enhanced(target)
+                if target_info and target_info["resolved"]:
+                    target_infos.append(target_info)
+            
+            if not target_infos:
+                self.stats["failed"] += len(targets) * reports_count
+                return {"success": False, "error": "فشل في حل الأهداف"}
+            
+            report_results = []
+            
+            # تنفيذ دورات الإبلاغ
+            for rep in range(reports_count):
                 if not self.context.user_data.get("active", True):
                     break
-                
-                # معالجة النتائج
-                for result in results:
-                    if isinstance(result, Exception):
-                        self.stats["failed"] += 1
-                        detailed_logger.error(f"❌ خطأ في البلاغ الجماعي: {result}")
-                    elif result.get("verified"):
-                        self.stats["success"] += 1
-                        self.stats["confirmed"] += 1
-                        self.session_reports_count += 1
-                        report_results.append(result)
-                
-            except Exception as e:
-                detailed_logger.error(f"❌ خطأ في الدورة الجماعية {rep+1}/{reports_count}: {e}")
-        
-        return {
-            "success": len(report_results) > 0,
-            "verified_reports": len(report_results),
-            "total_attempts": reports_count * len(targets),
-            "report_ids": report_results
-        }
+                    
+                try:
+                    # تأخير ذكي بين الدورات
+                    await self.intelligent_delay(cycle_delay)
+                    
+                    # إنشاء مهام للإبلاغ على جميع الأهداف في نفس الوقت
+                    tasks = []
+                    for target_info in target_infos:
+                        tasks.append(
+                            self._report_single_target(target_info, reason_obj, method_type, message)
+                        )
+                    
+                    # تنفيذ جميع البلاغات بشكل متزامن
+                    results = await asyncio.gather(*tasks, return_exceptions=True)
+                    if not self.context.user_data.get("active", True):
+                        break
+                    
+                    # معالجة النتائج
+                    for result in results:
+                        if isinstance(result, Exception):
+                            self.stats["failed"] += 1
+                            # تم إزالة السجل لتوفير الذاكرة
+                        elif result.get("verified"):
+                            self.stats["success"] += 1
+                            self.stats["confirmed"] += 1
+                            self.session_reports_count += 1
+                            report_results.append(result)
+                    
+                except Exception as e:
+                    # تم إزالة السجل لتوفير الذاكرة
+                    pass
+            
+            return {
+                "success": len(report_results) > 0,
+                "verified_reports": len(report_results),
+                "total_attempts": reports_count * len(targets),
+                "report_ids": report_results
+            }
+            
+        except Exception as e:
+            # تم إزالة السجل لتوفير الذاكرة
+            return {"success": False, "error": str(e)}
     
     # وظيفة مساعدة للبلاغ الفردي
     async def _report_single_target(self, target_info: dict, reason_obj: Any, 
@@ -710,177 +765,206 @@ class VerifiedReporter:
             }
             
         except Exception as e:
-            detailed_logger.error(f"❌ خطأ في البلاغ الفردي: {e}")
-            raise e
+            # تم إزالة السجل لتوفير الذاكرة
+            return {
+                "id": hashlib.md5(f"{target_info['original']}_{method_type}_{time.time()}".encode()).hexdigest()[:8],
+                "target": str(target_info['original']),
+                "method": method_type,
+                "timestamp": time.time(),
+                "verified": False,
+                "error": str(e)
+            }
 
 # === دوال مساعدة محسنة ===
 
 def convert_secret_enhanced(secret: str) -> str | None:
     """تحويل سر البروكسي محسن مع دعم جميع الصيغ"""
-    secret = secret.strip()
-    
-    # إزالة المسافات والأحرف الخاصة
-    clean_secret = re.sub(r'[^A-Fa-f0-9]', '', secret)
-    
-    # فحص الصيغة السداسية
-    if re.fullmatch(r'[A-Fa-f0-9]+', clean_secret) and len(clean_secret) % 2 == 0:
-        if len(clean_secret) >= 32:  # سر صالح
-            return clean_secret.lower()
-    
-    # محاولة فك base64
     try:
-        # إزالة البادئات
-        for prefix in ['ee', 'dd', '00']:
-            if secret.startswith(prefix):
-                secret = secret[len(prefix):]
-                break
+        secret = secret.strip()
         
-        # تحويل base64 URL-safe
-        cleaned = secret.replace('-', '+').replace('_', '/')
-        padding = '=' * (-len(cleaned) % 4)
-        decoded = base64.b64decode(cleaned + padding)
+        # إزالة المسافات والأحرف الخاصة
+        clean_secret = re.sub(r'[^A-Fa-f0-9]', '', secret)
         
-        hex_secret = decoded.hex()
-        if len(hex_secret) >= 32:
-            return hex_secret
+        # فحص الصيغة السداسية
+        if re.fullmatch(r'[A-Fa-f0-9]+', clean_secret) and len(clean_secret) % 2 == 0:
+            if len(clean_secret) >= 32:  # سر صالح
+                return clean_secret.lower()
+        
+        # محاولة فك base64
+        try:
+            # إزالة البادئات
+            for prefix in ['ee', 'dd', '00']:
+                if secret.startswith(prefix):
+                    secret = secret[len(prefix):]
+                    break
             
-    except Exception:
-        pass
-    
-    return None
+            # تحويل base64 URL-safe
+            cleaned = secret.replace('-', '+').replace('_', '/')
+            padding = '=' * (-len(cleaned) % 4)
+            decoded = base64.b64decode(cleaned + padding)
+            
+            hex_secret = decoded.hex()
+            if len(hex_secret) >= 32:
+                return hex_secret
+                
+        except Exception:
+            pass
+        
+        return None
+        
+    except Exception as e:
+        logger.error(f"❌ خطأ في convert_secret_enhanced: {e}")
+        return None
 
 # === إنشاء المكونات المحسنة ===
 # تم استبدال enhanced_proxy_checker بـ socks5_proxy_checker
 
 async def run_enhanced_report_process(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """عملية إبلاغ محسنة مع تتبع مفصل وتأكيد الإرسال"""
-    config = context.user_data
-    sessions = config.get("accounts", [])
-    
-    if not sessions:
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text="❌ لا توجد حسابات صالحة لبدء العملية."
-        )
-        return
-    
-    targets = config.get("targets", [])
-    reports_per_account = config.get("reports_per_account", 1)
-    proxies = config.get("proxies", [])
-    
-    # إحصائيات مفصلة
-    total_expected = len(sessions) * len(targets) * reports_per_account
-    config.update({
-        "total_reports": total_expected,
-        "progress_success": 0,
-        "progress_confirmed": 0,
-        "progress_failed": 0,
-        "active": True,
-        "lock": asyncio.Lock(),
-        "start_time": time.time(),
-        "detailed_stats": {
-            "verified_reports": [],
-            "failed_sessions": [],
-            "proxy_performance": {}
-        }
-    })
-    
-    # استخدام البروكسيات المفحوصة مسبقاً (تم فحصها في khayal.py)
-    if proxies:
-        # التحقق من أن البروكسيات تحتوي على معلومات الفحص المسبق
-        if isinstance(proxies, list) and len(proxies) > 0 and 'status' in proxies[0]:
-            # البروكسيات مفحوصة مسبقاً - استخدامها مباشرة
-            active_proxies = [p for p in proxies if p.get('status') == 'active']
-            
-            if active_proxies:
-                proxy_summary = "\n".join([
-                    f"• {p['host']}:{p['port']} - ping: {p.get('ping', 'N/A')}ms"
-                    for p in active_proxies[:3]
-                ])
+    try:
+        config = context.user_data
+        sessions = config.get("accounts", [])
+        
+        if not sessions:
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="❌ لا توجد حسابات صالحة لبدء العملية."
+            )
+            return
+        
+        targets = config.get("targets", [])
+        reports_per_account = config.get("reports_per_account", 1)
+        proxies = config.get("proxies", [])
+        
+        # إحصائيات مفصلة
+        total_expected = len(sessions) * len(targets) * reports_per_account
+        config.update({
+            "total_reports": total_expected,
+            "progress_success": 0,
+            "progress_confirmed": 0,
+            "progress_failed": 0,
+            "active": True,
+            "lock": asyncio.Lock(),
+            "start_time": time.time(),
+            "detailed_stats": {
+                "verified_reports": [],
+                "failed_sessions": [],
+                "proxy_performance": {}
+            }
+        })
+        
+        # استخدام البروكسيات المفحوصة مسبقاً (تم فحصها في khayal.py)
+        if proxies:
+            # التحقق من أن البروكسيات تحتوي على معلومات الفحص المسبق
+            if isinstance(proxies, list) and len(proxies) > 0 and 'status' in proxies[0]:
+                # البروكسيات مفحوصة مسبقاً - استخدامها مباشرة
+                active_proxies = [p for p in proxies if p.get('status') == 'active']
                 
+                if active_proxies:
+                    proxy_summary = "\n".join([
+                        f"• {p['host']}:{p['port']} - ping: {p.get('ping', 'N/A')}ms"
+                        for p in active_proxies[:3]
+                    ])
+                    
+                    progress_msg = await context.bot.send_message(
+                        chat_id=update.effective_chat.id,
+                        text=f"✅ <b>استخدام البروكسيات المفحوصة</b>\n"
+                             f"• نشط: {len(active_proxies)} بروكسي\n\n"
+                             f"🏆 <b>أفضل البروكسيات:</b>\n{proxy_summary}",
+                        parse_mode="HTML"
+                    )
+                    
+                    config["proxies"] = active_proxies
+                    # تم إزالة السجل لتوفير الذاكرة
+                    
+                    for proxy in active_proxies:
+                        # تم إزالة السجل لتوفير الذاكرة
+                        pass
+                    
+                    await asyncio.sleep(2)
+                else:
+                    await context.bot.send_message(
+                        chat_id=update.effective_chat.id,
+                        text="❌ لا توجد بروكسيات نشطة من الفحص المسبق. سيتم استخدام الاتصال المباشر."
+                    )
+                    config["proxies"] = []
+            else:
+                # فحص البروكسيات إذا لم تكن مفحوصة مسبقاً (احتياطي)
                 progress_msg = await context.bot.send_message(
                     chat_id=update.effective_chat.id,
-                    text=f"✅ <b>استخدام البروكسيات المفحوصة</b>\n"
-                         f"• نشط: {len(active_proxies)} بروكسي\n\n"
-                         f"🏆 <b>أفضل البروكسيات:</b>\n{proxy_summary}",
-                    parse_mode="HTML"
+                    text="🔍 جاري فحص البروكسيات بشكل مفصل..."
                 )
                 
-                config["proxies"] = active_proxies
-                detailed_logger.info(f"✅ تم تحميل {len(active_proxies)} بروكسي مفحوص مسبقاً")
-                
-                for proxy in active_proxies:
-                    detailed_logger.info(f"✅ بروكسي Socks5 نشط: {proxy['host']}:{proxy['port']} - ping: {proxy.get('ping', 'N/A')}ms")
-                
-                await asyncio.sleep(2)
-            else:
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text="❌ لا توجد بروكسيات نشطة من الفحص المسبق. سيتم استخدام الاتصال المباشر."
-                )
-                config["proxies"] = []
-        else:
-            # فحص البروكسيات إذا لم تكن مفحوصة مسبقاً (احتياطي)
-            progress_msg = await context.bot.send_message(
+                try:
+                    test_session = sessions[0]["session"]
+                    checked_proxies = await socks5_proxy_checker.batch_check_proxies(test_session, proxies)
+                    
+                    active_proxies = [p for p in checked_proxies if p.get('status') == 'active']
+                    
+                    if not active_proxies:
+                        await progress_msg.edit_text(
+                            "❌ لا توجد بروكسيات Socks5 نشطة. سيتم استخدام الاتصال المباشر."
+                        )
+                        config["proxies"] = []
+                    else:
+                        best_proxies = socks5_proxy_checker.get_best_proxies(active_proxies, 5)
+                        config["proxies"] = best_proxies
+                        
+                        proxy_summary = "\n".join([
+                            f"• {p['host']}:{p['port']} - ping: {p['ping']}ms"
+                            for p in best_proxies[:3]
+                        ])
+                        
+                        await progress_msg.edit_text(
+                            f"✅ تم فحص البروكسيات\n"
+                            f"نشط: {len(active_proxies)}/{len(proxies)}\n\n"
+                            f"أفضل البروكسيات:\n{proxy_summary}"
+                        )
+                        
+                        await asyncio.sleep(2)
+                except Exception as e:
+                    # تم إزالة السجل لتوفير الذاكرة
+                    await progress_msg.edit_text("❌ خطأ في فحص البروكسيات. سيتم استخدام الاتصال المباشر.")
+                    config["proxies"] = []
+        
+        # بدء عملية الإبلاغ المحسنة
+        try:
+            progress_message = await context.bot.send_message(
                 chat_id=update.effective_chat.id,
-                text="🔍 جاري فحص البروكسيات بشكل مفصل..."
+                text="🚀 بدء عملية الإبلاغ المحققة...",
+                parse_mode="HTML"
+            )
+            context.user_data["progress_message"] = progress_message
+            
+            # إنشاء مهام للحسابات
+            session_tasks = []
+            for session in sessions:
+                task = asyncio.create_task(
+                    process_enhanced_session(session, targets, reports_per_account, config, context)
+                )
+                session_tasks.append(task)
+            
+            context.user_data["tasks"] = session_tasks
+            
+            # مراقبة التقدم المحسنة
+            await monitor_enhanced_progress(context, progress_message, session_tasks)
+            
+        except Exception as e:
+            logger.error(f"خطأ في عملية الإبلاغ المحسنة: {e}")
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=f"❌ خطأ في العملية: {str(e)}"
             )
             
-            test_session = sessions[0]["session"]
-            checked_proxies = await socks5_proxy_checker.batch_check_proxies(test_session, proxies)
-            
-            active_proxies = [p for p in checked_proxies if p.get('status') == 'active']
-            
-            if not active_proxies:
-                await progress_msg.edit_text(
-                    "❌ لا توجد بروكسيات Socks5 نشطة. سيتم استخدام الاتصال المباشر."
-                )
-                config["proxies"] = []
-            else:
-                best_proxies = socks5_proxy_checker.get_best_proxies(active_proxies, 5)
-                config["proxies"] = best_proxies
-                
-                proxy_summary = "\n".join([
-                    f"• {p['host']}:{p['port']} - ping: {p['ping']}ms"
-                    for p in best_proxies[:3]
-                ])
-                
-                await progress_msg.edit_text(
-                    f"✅ تم فحص البروكسيات\n"
-                    f"نشط: {len(active_proxies)}/{len(proxies)}\n\n"
-                    f"أفضل البروكسيات:\n{proxy_summary}"
-                )
-                
-                await asyncio.sleep(2)
-    
-    # بدء عملية الإبلاغ المحسنة
-    try:
-        progress_message = await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text="🚀 بدء عملية الإبلاغ المحققة...",
-            parse_mode="HTML"
-        )
-        context.user_data["progress_message"] = progress_message
-        
-        # إنشاء مهام للحسابات
-        session_tasks = []
-        for session in sessions:
-            task = asyncio.create_task(
-                process_enhanced_session(session, targets, reports_per_account, config, context)
-            )
-            session_tasks.append(task)
-        
-        context.user_data["tasks"] = session_tasks
-        
-        # مراقبة التقدم المحسنة
-        await monitor_enhanced_progress(context, progress_message, session_tasks)
-        
     except Exception as e:
-        logger.error(f"خطأ في عملية الإبلاغ المحسنة: {e}")
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=f"❌ خطأ في العملية: {str(e)}"
-        )
+        logger.error(f"❌ خطأ جسيم في run_enhanced_report_process: {e}")
+        try:
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=f"❌ خطأ جسيم في العملية: {str(e)}"
+            )
+        except:
+            pass
 
 async def process_enhanced_session(session: dict, targets: list, reports_per_account: int, 
                                  config: dict, context: ContextTypes.DEFAULT_TYPE):
@@ -890,7 +974,7 @@ async def process_enhanced_session(session: dict, targets: list, reports_per_acc
     proxies = config.get("proxies", [])
     
     if not session_str:
-        detailed_logger.error(f"❌ جلسة فارغة للحساب {session_id}")
+        # تم إزالة السجل لتوفير الذاكرة
         return
     
     client = None
@@ -900,7 +984,7 @@ async def process_enhanced_session(session: dict, targets: list, reports_per_acc
         # اختيار أفضل بروكسي
         if proxies:
             current_proxy = random.choice(proxies)
-            detailed_logger.info(f"🔗 استخدام البروكسي {current_proxy['host']}:{current_proxy['port']} للحساب {session_id}")
+            # تم إزالة السجل لتوفير الذاكرة
         
         # إعداد العميل
         params = {
@@ -914,11 +998,15 @@ async def process_enhanced_session(session: dict, targets: list, reports_per_acc
         
         if current_proxy:
             # إعداد بروكسي Socks5 مع telethon
-            import socks
-            params.update({
-                "proxy": (socks.SOCKS5, current_proxy["host"], current_proxy["port"])
-            })
-            detailed_logger.info(f"🔗 إعداد بروكسي Socks5: {current_proxy['host']}:{current_proxy['port']}")
+            try:
+                import socks
+                params.update({
+                    "proxy": (socks.SOCKS5, current_proxy["host"], current_proxy["port"])
+                })
+                # تم إزالة السجل لتوفير الذاكرة
+            except ImportError:
+                # تم إزالة السجل لتوفير الذاكرة
+                current_proxy = None
         
         # الاتصال
         client = TelegramClient(StringSession(session_str), **params)
@@ -950,10 +1038,10 @@ async def process_enhanced_session(session: dict, targets: list, reports_per_acc
                     result.get("report_ids", [])
                 )
         
-        detailed_logger.info(f"✅ اكتمل الحساب {session_id} - البلاغات المحققة: {reporter.stats['confirmed']}")
+        # تم إزالة السجل لتوفير الذاكرة
         
     except Exception as e:
-        detailed_logger.error(f"❌ فشل الحساب {session_id}: {e}")
+        # تم إزالة السجل لتوفير الذاكرة
         async with config["lock"]:
             config["detailed_stats"]["failed_sessions"].append({
                 "session_id": session_id,
@@ -963,7 +1051,10 @@ async def process_enhanced_session(session: dict, targets: list, reports_per_acc
     
     finally:
         if client and client.is_connected():
-            await client.disconnect()
+            try:
+                await client.disconnect()
+            except:
+                pass
 
 async def monitor_enhanced_progress(context: ContextTypes.DEFAULT_TYPE, 
                                   progress_message: Any, session_tasks: list):
@@ -971,82 +1062,90 @@ async def monitor_enhanced_progress(context: ContextTypes.DEFAULT_TYPE,
     config = context.user_data
     start_time = config["start_time"]
     
-    while config.get("active", True) and any(not t.done() for t in session_tasks):
+    try:
+        while config.get("active", True) and any(not t.done() for t in session_tasks):
+            async with config["lock"]:
+                success = config["progress_success"]
+                confirmed = config["progress_confirmed"]
+                failed = config["progress_failed"]
+                total = config["total_reports"]
+            if not config.get("active", True):
+                break
+            
+            completed = success + failed
+            progress_percent = min(100, int((completed / total) * 100))
+            
+            elapsed = time.time() - start_time
+            if completed > 0:
+                eta_seconds = (elapsed / completed) * (total - completed)
+                eta_str = str(timedelta(seconds=int(eta_seconds)))
+            else:
+                eta_str = "حساب..."
+            
+            # شريط التقدم المحسن
+            filled = int(20 * (progress_percent / 100))
+            progress_bar = "█" * filled + "░" * (20 - filled)
+            
+            verification_rate = (confirmed / success * 100) if success > 0 else 0
+            
+            text = (
+                f"📊 <b>تقدم الإبلاغات المحققة</b>\n\n"
+                f"<code>[{progress_bar}]</code> {progress_percent}%\n\n"
+                f"📈 <b>الإحصائيات:</b>\n"
+                f"▫️ المطلوب: {total}\n"
+                f"✅ المرسل: {success}\n"
+                f"🔐 المحقق: {confirmed} ({verification_rate:.1f}%)\n"
+                f"❌ الفاشل: {failed}\n"
+                f"⏱ المتبقي: {eta_str}\n"
+                f"⏰ المدة: {str(timedelta(seconds=int(elapsed)))}"
+            )
+            
+            try:
+                await progress_message.edit_text(text, parse_mode="HTML")
+            except BadRequest:
+                pass
+            
+            await asyncio.sleep(3)
+        
+        # النتائج النهائية
         async with config["lock"]:
-            success = config["progress_success"]
-            confirmed = config["progress_confirmed"]
-            failed = config["progress_failed"]
-            total = config["total_reports"]
-        if not config.get("active", True):
-            break
+            final_stats = {
+                "success": config["progress_success"],
+                "confirmed": config["progress_confirmed"],
+                "failed": config["progress_failed"],
+                "verification_rate": (config["progress_confirmed"] / config["progress_success"] * 100) 
+                                   if config["progress_success"] > 0 else 0,
+                "total_time": time.time() - start_time,
+                "verified_reports": len(config["detailed_stats"]["verified_reports"]),
+                "failed_sessions": len(config["detailed_stats"]["failed_sessions"])
+            }
         
-        completed = success + failed
-        progress_percent = min(100, int((completed / total) * 100))
-        
-        elapsed = time.time() - start_time
-        if completed > 0:
-            eta_seconds = (elapsed / completed) * (total - completed)
-            eta_str = str(timedelta(seconds=int(eta_seconds)))
-        else:
-            eta_str = "حساب..."
-        
-        # شريط التقدم المحسن
-        filled = int(20 * (progress_percent / 100))
-        progress_bar = "█" * filled + "░" * (20 - filled)
-        
-        verification_rate = (confirmed / success * 100) if success > 0 else 0
-        
-        text = (
-            f"📊 <b>تقدم الإبلاغات المحققة</b>\n\n"
-            f"<code>[{progress_bar}]</code> {progress_percent}%\n\n"
-            f"📈 <b>الإحصائيات:</b>\n"
-            f"▫️ المطلوب: {total}\n"
-            f"✅ المرسل: {success}\n"
-            f"🔐 المحقق: {confirmed} ({verification_rate:.1f}%)\n"
-            f"❌ الفاشل: {failed}\n"
-            f"⏱ المتبقي: {eta_str}\n"
-            f"⏰ المدة: {str(timedelta(seconds=int(elapsed)))}"
+        final_text = (
+            f"🎯 <b>اكتملت العملية المحققة!</b>\n\n"
+            f"📊 <b>النتائج النهائية:</b>\n"
+            f"• البلاغات المرسلة: {final_stats['success']}\n"
+            f"• البلاغات المحققة: {final_stats['confirmed']}\n"
+            f"• معدل التحقق: {final_stats['verification_rate']:.1f}%\n"
+            f"• الجلسات الفاشلة: {final_stats['failed_sessions']}\n"
+            f"• المدة الإجمالية: {str(timedelta(seconds=int(final_stats['total_time'])))}\n\n"
+            f"📋 تم عرض التقرير المفصل أعلاه"
         )
         
         try:
-            await progress_message.edit_text(text, parse_mode="HTML")
-        except BadRequest:
-            pass
+            await progress_message.edit_text(final_text, parse_mode="HTML")
+        except Exception:
+            await context.bot.send_message(
+                chat_id=progress_message.chat_id,
+                text=final_text,
+                parse_mode="HTML"
+            )
         
-        await asyncio.sleep(3)
-    
-    # النتائج النهائية
-    async with config["lock"]:
-        final_stats = {
-            "success": config["progress_success"],
-            "confirmed": config["progress_confirmed"],
-            "failed": config["progress_failed"],
-            "verification_rate": (config["progress_confirmed"] / config["progress_success"] * 100) 
-                               if config["progress_success"] > 0 else 0,
-            "total_time": time.time() - start_time,
-            "verified_reports": len(config["detailed_stats"]["verified_reports"]),
-            "failed_sessions": len(config["detailed_stats"]["failed_sessions"])
-        }
-    
-    final_text = (
-        f"🎯 <b>اكتملت العملية المحققة!</b>\n\n"
-        f"📊 <b>النتائج النهائية:</b>\n"
-        f"• البلاغات المرسلة: {final_stats['success']}\n"
-        f"• البلاغات المحققة: {final_stats['confirmed']}\n"
-        f"• معدل التحقق: {final_stats['verification_rate']:.1f}%\n"
-        f"• الجلسات الفاشلة: {final_stats['failed_sessions']}\n"
-        f"• المدة الإجمالية: {str(timedelta(seconds=int(final_stats['total_time'])))}\n\n"
-        f"📋 تم حفظ تقرير مفصل في detailed_reports.log"
-    )
-    
-    try:
-        await progress_message.edit_text(final_text, parse_mode="HTML")
-    except Exception:
-        await context.bot.send_message(
-            chat_id=progress_message.chat_id,
-            text=final_text,
-            parse_mode="HTML"
-        )
-    
-    # حفظ التقرير المفصل
-    detailed_logger.info(f"📋 تقرير نهائي: {json.dumps(final_stats, indent=2, ensure_ascii=False)}")
+        # حفظ التقرير المفصل
+        # تم إزالة السجل لتوفير الذاكرة
+        
+    except Exception as e:
+        # تم إزالة السجل لتوفير الذاكرة
+        try:
+            await progress_message.edit_text(f"❌ خطأ في مراقبة التقدم: {str(e)}")
+        except:
+            pass

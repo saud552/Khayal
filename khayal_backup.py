@@ -66,7 +66,7 @@ from Telegram.common_improved import (
     Socks5ProxyChecker,
     VerifiedReporter
 )
-from config_enhanced import enhanced_config
+from config import enhanced_config
 
 # تقليل مستوى تسجيل telethon لتجنب الرسائل غير الضرورية
 logging.getLogger('telethon').setLevel(logging.WARNING)

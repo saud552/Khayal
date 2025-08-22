@@ -43,13 +43,8 @@ try:
 except ImportError:
     DB_PATH = 'accounts.db'  # قيمة افتراضية
 
-# إعداد نظام تسجيل مفصل للتتبع
-detailed_logger = logging.getLogger('detailed_reporter')
-detailed_handler = logging.FileHandler('detailed_reports.log', encoding='utf-8')
-detailed_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-detailed_handler.setFormatter(detailed_formatter)
-detailed_logger.addHandler(detailed_handler)
-detailed_logger.setLevel(logging.INFO)
+# تم إزالة نظام السجلات لتوفير الذاكرة
+# سيتم استخدام print() فقط للرسائل المهمة
 
 # === الثوابت المحسنة ===
 PROXY_CHECK_TIMEOUT = 25  # ثانية
@@ -189,7 +184,7 @@ class Socks5ProxyChecker:
                 "error": None
             })
             
-            detailed_logger.info(f"✅ بروكسي Socks5 نشط: {proxy_info['host']}:{proxy_info['port']} - ping: {ping}ms")
+            # تم إزالة السجل لتوفير الذاكرة
             
         except asyncio.TimeoutError:
             result.update({
@@ -365,28 +360,28 @@ class VerifiedReporter:
         try:
             # تحليل نتيجة البلاغ
             if isinstance(report_result, types.ReportResultAddComment):
-                detailed_logger.info(f"✅ تم قبول البلاغ مع طلب تعليق - الهدف: {target}")
+                # تم إزالة السجل لتوفير الذاكرة
                 return True
                 
             elif isinstance(report_result, types.ReportResultChooseOption):
-                detailed_logger.info(f"✅ تم قبول البلاغ مع خيارات - الهدف: {target}")
+                # تم إزالة السجل لتوفير الذاكرة
                 return True
                 
             elif hasattr(report_result, 'success') and report_result.success:
-                detailed_logger.info(f"✅ تم قبول البلاغ بنجاح - الهدف: {target}")
+                # تم إزالة السجل لتوفير الذاكرة
                 return True
                 
             # إذا كانت النتيجة True أو None (نجاح ضمني)
             elif report_result is True or report_result is None:
-                detailed_logger.info(f"✅ تم إرسال البلاغ (نجاح ضمني) - الهدف: {target}")
+                # تم إزالة السجل لتوفير الذاكرة
                 return True
                 
             else:
-                detailed_logger.warning(f"⚠️ نتيجة غير مؤكدة للبلاغ - الهدف: {target} - النتيجة: {type(report_result)}")
+                # تم إزالة السجل لتوفير الذاكرة
                 return False
                 
         except Exception as e:
-            detailed_logger.error(f"❌ خطأ في التحقق من البلاغ - الهدف: {target} - الخطأ: {e}")
+            # تم إزالة السجل لتوفير الذاكرة
             return False
     
     async def intelligent_delay(self, base_delay: float):
@@ -408,14 +403,14 @@ class VerifiedReporter:
                 
                 if elapsed < randomized_delay:
                     wait_time = randomized_delay - elapsed
-                    detailed_logger.info(f"⏳ تأخير ذكي: {wait_time:.1f} ثانية")
+                    # تم إزالة السجل لتوفير الذاكرة
                     await asyncio.sleep(wait_time)
                     
             self.stats["last_report"] = time.time()
             self.last_activity = time.time()
             
         except Exception as e:
-            detailed_logger.error(f"❌ خطأ في intelligent_delay: {e}")
+            # تم إزالة السجل لتوفير الذاكرة
             # في حالة الخطأ، نستخدم التأخير الأساسي
             await asyncio.sleep(base_delay)
     
@@ -487,7 +482,7 @@ class VerifiedReporter:
                     })
                     return target_info
                 except Exception as e:
-                    detailed_logger.error(f"❌ فشل في حل الرابط {target}: {e}")
+                    # تم إزالة السجل لتوفير الذاكرة
                     return None
             
             # الحالة 3: معرف مستخدم أو قناة مباشر
@@ -500,11 +495,11 @@ class VerifiedReporter:
                 })
                 return target_info
             except Exception as e:
-                detailed_logger.error(f"❌ فشل في حل الهدف {target}: {e}")
+                # تم إزالة السجل لتوفير الذاكرة
                 return None
                 
         except Exception as e:
-            detailed_logger.error(f"❌ خطأ عام في حل الهدف {target}: {e}")
+            # تم إزالة السجل لتوفير الذاكرة
             return None
     
     def parse_message_link(self, link: str) -> dict | None:
@@ -612,30 +607,30 @@ class VerifiedReporter:
                         self.stats["report_ids"].append(report_info)
                         report_results.append(report_info)
                         
-                        detailed_logger.info(f"✅ بلاغ محقق #{report_id} - الهدف: {target} - الطريقة: {method_type}")
+                        # تم إزالة السجل لتوفير الذاكرة
                         
                     else:
                         self.stats["unconfirmed"] += 1
-                        detailed_logger.warning(f"⚠️ بلاغ غير محقق - الهدف: {target}")
+                        # تم إزالة السجل لتوفير الذاكرة
                         
                 except ChatWriteForbiddenError:
-                    detailed_logger.error(f"❌ ممنوع من الكتابة في الدردشة - الهدف: {target}")
+                    # تم إزالة السجل لتوفير الذاكرة
                     self.stats["failed"] += 1
                     
                 except UserBannedInChannelError:
-                    detailed_logger.error(f"❌ المستخدم محظور في القناة - الهدف: {target}")
+                    # تم إزالة السجل لتوفير الذاكرة
                     self.stats["failed"] += 1
                     
                 except MessageIdInvalidError:
-                    detailed_logger.error(f"❌ معرف رسالة غير صالح - الهدف: {target}")
+                    # تم إزالة السجل لتوفير الذاكرة
                     self.stats["failed"] += 1
                     
                 except FloodWaitError as e:
-                    detailed_logger.warning(f"⏳ حد المعدل: انتظار {e.seconds} ثانية")
+                    # تم إزالة السجل لتوفير الذاكرة
                     await asyncio.sleep(e.seconds + 1)
                     
                 except Exception as e:
-                    detailed_logger.error(f"❌ خطأ في البلاغ - الهدف: {target} - الخطأ: {e}")
+                    # تم إزالة السجل لتوفير الذاكرة
                     self.stats["failed"] += 1
             
             return {
@@ -646,7 +641,7 @@ class VerifiedReporter:
             }
             
         except Exception as e:
-            detailed_logger.error(f"❌ خطأ جسيم في execute_verified_report: {e}")
+            # تم إزالة السجل لتوفير الذاكرة
             return {"success": False, "error": str(e)}
     
     # وظيفة جديدة للإبلاغ الجماعي
@@ -695,7 +690,7 @@ class VerifiedReporter:
                     for result in results:
                         if isinstance(result, Exception):
                             self.stats["failed"] += 1
-                            detailed_logger.error(f"❌ خطأ في البلاغ الجماعي: {result}")
+                            # تم إزالة السجل لتوفير الذاكرة
                         elif result.get("verified"):
                             self.stats["success"] += 1
                             self.stats["confirmed"] += 1
@@ -703,7 +698,7 @@ class VerifiedReporter:
                             report_results.append(result)
                     
                 except Exception as e:
-                    detailed_logger.error(f"❌ خطأ في الدورة الجماعية {rep+1}/{reports_count}: {e}")
+                    # تم إزالة السجل لتوفير الذاكرة
             
             return {
                 "success": len(report_results) > 0,
@@ -713,7 +708,7 @@ class VerifiedReporter:
             }
             
         except Exception as e:
-            detailed_logger.error(f"❌ خطأ جسيم في execute_batch_report: {e}")
+            # تم إزالة السجل لتوفير الذاكرة
             return {"success": False, "error": str(e)}
     
     # وظيفة مساعدة للبلاغ الفردي
@@ -769,7 +764,7 @@ class VerifiedReporter:
             }
             
         except Exception as e:
-            detailed_logger.error(f"❌ خطأ في البلاغ الفردي: {e}")
+            # تم إزالة السجل لتوفير الذاكرة
             return {
                 "id": hashlib.md5(f"{target_info['original']}_{method_type}_{time.time()}".encode()).hexdigest()[:8],
                 "target": str(target_info['original']),
@@ -879,10 +874,10 @@ async def run_enhanced_report_process(update: Update, context: ContextTypes.DEFA
                     )
                     
                     config["proxies"] = active_proxies
-                    detailed_logger.info(f"✅ تم تحميل {len(active_proxies)} بروكسي مفحوص مسبقاً")
+                    # تم إزالة السجل لتوفير الذاكرة
                     
                     for proxy in active_proxies:
-                        detailed_logger.info(f"✅ بروكسي Socks5 نشط: {proxy['host']}:{proxy['port']} - ping: {proxy.get('ping', 'N/A')}ms")
+                        # تم إزالة السجل لتوفير الذاكرة
                     
                     await asyncio.sleep(2)
                 else:
@@ -926,7 +921,7 @@ async def run_enhanced_report_process(update: Update, context: ContextTypes.DEFA
                         
                         await asyncio.sleep(2)
                 except Exception as e:
-                    detailed_logger.error(f"❌ خطأ في فحص البروكسيات: {e}")
+                    # تم إزالة السجل لتوفير الذاكرة
                     await progress_msg.edit_text("❌ خطأ في فحص البروكسيات. سيتم استخدام الاتصال المباشر.")
                     config["proxies"] = []
         
@@ -977,7 +972,7 @@ async def process_enhanced_session(session: dict, targets: list, reports_per_acc
     proxies = config.get("proxies", [])
     
     if not session_str:
-        detailed_logger.error(f"❌ جلسة فارغة للحساب {session_id}")
+        # تم إزالة السجل لتوفير الذاكرة
         return
     
     client = None
@@ -987,7 +982,7 @@ async def process_enhanced_session(session: dict, targets: list, reports_per_acc
         # اختيار أفضل بروكسي
         if proxies:
             current_proxy = random.choice(proxies)
-            detailed_logger.info(f"🔗 استخدام البروكسي {current_proxy['host']}:{current_proxy['port']} للحساب {session_id}")
+            # تم إزالة السجل لتوفير الذاكرة
         
         # إعداد العميل
         params = {
@@ -1006,9 +1001,9 @@ async def process_enhanced_session(session: dict, targets: list, reports_per_acc
                 params.update({
                     "proxy": (socks.SOCKS5, current_proxy["host"], current_proxy["port"])
                 })
-                detailed_logger.info(f"🔗 إعداد بروكسي Socks5: {current_proxy['host']}:{current_proxy['port']}")
+                # تم إزالة السجل لتوفير الذاكرة
             except ImportError:
-                detailed_logger.error("❌ مكتبة PySocks غير مثبتة. سيتم استخدام الاتصال المباشر.")
+                # تم إزالة السجل لتوفير الذاكرة
                 current_proxy = None
         
         # الاتصال
@@ -1041,10 +1036,10 @@ async def process_enhanced_session(session: dict, targets: list, reports_per_acc
                     result.get("report_ids", [])
                 )
         
-        detailed_logger.info(f"✅ اكتمل الحساب {session_id} - البلاغات المحققة: {reporter.stats['confirmed']}")
+        # تم إزالة السجل لتوفير الذاكرة
         
     except Exception as e:
-        detailed_logger.error(f"❌ فشل الحساب {session_id}: {e}")
+        # تم إزالة السجل لتوفير الذاكرة
         async with config["lock"]:
             config["detailed_stats"]["failed_sessions"].append({
                 "session_id": session_id,
@@ -1131,7 +1126,7 @@ async def monitor_enhanced_progress(context: ContextTypes.DEFAULT_TYPE,
             f"• معدل التحقق: {final_stats['verification_rate']:.1f}%\n"
             f"• الجلسات الفاشلة: {final_stats['failed_sessions']}\n"
             f"• المدة الإجمالية: {str(timedelta(seconds=int(final_stats['total_time'])))}\n\n"
-            f"📋 تم حفظ تقرير مفصل في detailed_reports.log"
+            f"📋 تم عرض التقرير المفصل أعلاه"
         )
         
         try:
@@ -1144,10 +1139,10 @@ async def monitor_enhanced_progress(context: ContextTypes.DEFAULT_TYPE,
             )
         
         # حفظ التقرير المفصل
-        detailed_logger.info(f"📋 تقرير نهائي: {json.dumps(final_stats, indent=2, ensure_ascii=False)}")
+        # تم إزالة السجل لتوفير الذاكرة
         
     except Exception as e:
-        detailed_logger.error(f"❌ خطأ في مراقبة التقدم: {e}")
+        # تم إزالة السجل لتوفير الذاكرة
         try:
             await progress_message.edit_text(f"❌ خطأ في مراقبة التقدم: {str(e)}")
         except:

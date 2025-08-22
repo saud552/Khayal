@@ -55,13 +55,13 @@ class SessionSettings:
 @dataclass
 class LoggingSettings:
     """إعدادات التسجيل المحسنة"""
-    detailed_logging: bool = True
-    log_file_path: str = "detailed_reports.log"
-    max_log_size_mb: int = 100
-    backup_log_count: int = 5
+    detailed_logging: bool = False
+    log_file_path: str = ""  # لا نستخدم ملفات السجلات
+    max_log_size_mb: int = 0
+    backup_log_count: int = 0
     log_level: str = "INFO"
-    include_proxy_performance: bool = True
-    include_session_stats: bool = True
+    include_proxy_performance: bool = False
+    include_session_stats: bool = False
 
 @dataclass
 class SecuritySettings:

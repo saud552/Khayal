@@ -300,7 +300,7 @@ print_status "أوامر مفيدة:"
 echo "  • عرض العمليات: ps aux | grep python"
 echo "  • إيقاف بوت البلاغات: pkill -f khayal.py"
 echo "  • إيقاف بوت التحكم: pkill -f add.py"
-echo "  • عرض السجلات: tail -f detailed_reports.log"
+echo "  • عرض الحالة: ps aux | grep -E '(khayal|add)\.py'"
 
 echo ""
 print_success "🎉 تم تشغيل البوتين بنجاح!"

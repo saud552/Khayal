@@ -1,4 +1,4 @@
-# DrKhayal/khayal.py - نسخة منظمة
+# DrKhayal/khayal.py - نسخة منظمة ومصلحة
 
 import sys
 import os
@@ -32,6 +32,16 @@ from telethon import TelegramClient
 from telethon.sessions import StringSession
 
 # ===================================================================
+#  إعداد التسجيل
+# ===================================================================
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logging.getLogger('telethon').setLevel(logging.WARNING)
+logger = logging.getLogger(__name__)
+
+# ===================================================================
 #  استيراد الإعدادات والوحدات
 # ===================================================================
 
@@ -45,6 +55,7 @@ except ImportError:
 # --- استيراد معالجات البريد الإلكتروني ---
 try:
     from Email.email_reports import email_conv_handler, start_email
+    logger.info("✅ تم استيراد معالج البريد الإلكتروني")
 except ImportError:
     logging.warning("تحذير: لم يتم العثور على وحدة البريد الإلكتروني. سيتم تجاهل هذا القسم.")
     email_conv_handler = None
@@ -53,34 +64,45 @@ except ImportError:
 # --- استيراد معالجات الدعم (تم التفعيل) ---
 try:
     from Telegram.support_module import register_support_handlers
+    logger.info("✅ تم استيراد معالج الدعم الخاص")
 except ImportError:
     register_support_handlers = None
     logging.warning("تحذير: لم يتم العثور على وحدة الدعم الخاص (support_module.py). سيتم تجاهلها.")
 
 # --- استيراد معالجات تقارير تيليجرام ---
-from Telegram.report_peer import peer_report_conv
-from Telegram.report_message import message_report_conv
-from Telegram.report_photo import photo_report_conv
-from Telegram.report_sponsored import sponsored_report_conv
-from Telegram.report_mass import mass_report_conv
-from Telegram.report_bot_messages import bot_messages_report_conv
+try:
+    from Telegram.report_peer import peer_report_conv
+    from Telegram.report_message import message_report_conv
+    from Telegram.report_photo import photo_report_conv
+    from Telegram.report_sponsored import sponsored_report_conv
+    from Telegram.report_mass import mass_report_conv
+    from Telegram.report_bot_messages import bot_messages_report_conv
+    logger.info("✅ تم استيراد جميع معالجات التقارير")
+except ImportError as e:
+    logging.error(f"خطأ في استيراد معالجات التقارير: {e}")
+    exit(1)
 
 # --- استيراد الدوال المشتركة ---
-from Telegram.common import get_categories, get_accounts, cancel_operation
-from Telegram.common_improved import (
-    socks5_proxy_checker, 
-    parse_socks5_proxy, 
-    run_enhanced_report_process,
-    Socks5ProxyChecker,
-    VerifiedReporter
-)
-from config_enhanced import enhanced_config
+try:
+    from Telegram.common import get_categories, get_accounts, cancel_operation
+    from Telegram.common_improved import (
+        socks5_proxy_checker, 
+        parse_socks5_proxy, 
+        run_enhanced_report_process,
+        Socks5ProxyChecker,
+        VerifiedReporter
+    )
+    logger.info("✅ تم استيراد الدوال المشتركة")
+except ImportError as e:
+    logging.error(f"خطأ في استيراد الدوال المشتركة: {e}")
+    exit(1)
 
-# ===================================================================
-#  إعداد التسجيل
-# ===================================================================
-logging.getLogger('telethon').setLevel(logging.WARNING)
-logger = logging.getLogger(__name__)
+try:
+    from config_enhanced import enhanced_config
+    logger.info("✅ تم استيراد الإعدادات المحسنة")
+except ImportError:
+    logging.warning("تحذير: لم يتم العثور على الإعدادات المحسنة. سيتم استخدام الإعدادات الافتراضية.")
+    enhanced_config = None
 
 # ===================================================================
 #  تعريف حالات المحادثة
@@ -449,6 +471,59 @@ async def back_to_proxy_option(update: Update, context: ContextTypes.DEFAULT_TYP
     return await start_proxy_setup(update, context)
 
 # ===================================================================
+#  معالجات الأزرار العامة
+# ===================================================================
+
+async def handle_email_reports(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """معالج قسم بلاغات البريد الإلكتروني."""
+    query = update.callback_query
+    await query.answer()
+    
+    if start_email:
+        await start_email(update, context)
+    else:
+        await query.edit_message_text("❌ قسم البريد الإلكتروني غير متاح حالياً.")
+
+async def handle_special_support(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """معالج قسم الدعم الخاص."""
+    query = update.callback_query
+    await query.answer()
+    
+    if register_support_handlers:
+        # سيتم التعامل مع هذا في support_module
+        await query.edit_message_text("🛠️ جاري تحميل قسم الدعم الخاص...")
+    else:
+        await query.edit_message_text("❌ قسم الدعم الخاص غير متاح حالياً.")
+
+async def handle_method_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """معالج اختيار طريقة الإبلاغ."""
+    query = update.callback_query
+    await query.answer()
+    
+    method = query.data.split('_')[1]
+    context.user_data['selected_method'] = method
+    
+    # إعادة توجيه إلى المعالج المناسب
+    if method == "peer":
+        await query.edit_message_text("👤 جاري تحميل معالج بلاغات الأعضاء...")
+        # سيتم التعامل مع هذا في peer_report_conv
+    elif method == "message":
+        await query.edit_message_text("💬 جاري تحميل معالج بلاغات الرسائل...")
+        # سيتم التعامل مع هذا في message_report_conv
+    elif method == "photo":
+        await query.edit_message_text("🖼️ جاري تحميل معالج بلاغات الصور...")
+        # سيتم التعامل مع هذا في photo_report_conv
+    elif method == "sponsored":
+        await query.edit_message_text("📢 جاري تحميل معالج بلاغات الإعلانات الممولة...")
+        # سيتم التعامل مع هذا في sponsored_report_conv
+    elif method == "mass":
+        await query.edit_message_text("🔥 جاري تحميل معالج البلاغات الجماعية...")
+        # سيتم التعامل مع هذا في mass_report_conv
+    elif method == "bot_messages":
+        await query.edit_message_text("🤖 جاري تحميل معالج بلاغات رسائل البوت...")
+        # سيتم التعامل مع هذا في bot_messages_report_conv
+
+# ===================================================================
 #  إعداد البوت والمعالجات
 # ===================================================================
 
@@ -456,6 +531,14 @@ def main():
     """الدالة الرئيسية لتشغيل البوت."""
     logger.info("🤖 بدء تشغيل بوت الإبلاغ المطور...")
     logger.info("🌐 نظام Socks5 الجديد محمل")
+    
+    # إنشاء قاعدة البيانات إذا لم تكن موجودة
+    try:
+        from add import init_db
+        init_db()
+        logger.info("✅ تم إنشاء/فحص قاعدة البيانات")
+    except Exception as e:
+        logger.warning(f"تحذير: لم يتم إنشاء قاعدة البيانات: {e}")
     
     # إنشاء تطبيق البوت
     logger.info("🤖 إنشاء تطبيق البوت...")
@@ -465,16 +548,16 @@ def main():
     # --- المعالجات الأساسية ---
     logger.info("📱 إضافة معالجات أساسية...")
     app.add_handler(CommandHandler("start", start))
-    # معالج /cancel عالمي لإيقاف أي مهمة جارية
     app.add_handler(CommandHandler("cancel", cancel_operation))
-    # معالجات أزرار رئيسية عامة لضمان الاستجابة دائمًا
-    # (يتم الاعتماد أساسًا على ConversationHandler للدخول إلى قسم تيليجرام)
-    # معالجات عامة للبدء والرجوع لضمان الاستجابة حتى خارج حالة المحادثة
-    app.add_handler(CallbackQueryHandler(start_proxy_setup, pattern='^start_proxy_setup$'))
-    app.add_handler(CallbackQueryHandler(back_to_tg_menu, pattern='^back_to_tg_menu$'))
-    app.add_handler(CallbackQueryHandler(back_to_proxy_option, pattern='^back_to_proxy_option$'))
-    app.add_handler(CallbackQueryHandler(back_to_proxy_setup, pattern='^back_to_proxy_setup$'))
     logger.info("✅ تم إضافة المعالجات الأساسية")
+
+    # --- معالجات الأزرار العامة ---
+    logger.info("🔧 إضافة معالجات الأزرار العامة...")
+    app.add_handler(CallbackQueryHandler(handle_email_reports, pattern='^email_reports$'))
+    app.add_handler(CallbackQueryHandler(handle_special_support, pattern='^special_support$'))
+    app.add_handler(CallbackQueryHandler(handle_method_selection, pattern='^method_'))
+    app.add_handler(CallbackQueryHandler(back_to_main_menu, pattern='^back_to_main_menu$'))
+    logger.info("✅ تم إضافة معالجات الأزرار العامة")
 
     # --- معالج قسم تيليجرام (الإعداد الأولي) ---
     logger.info("🛠️ إعداد معالج التليجرام...")
@@ -484,6 +567,8 @@ def main():
         states={
             TELEGRAM_MENU: [
                 CallbackQueryHandler(start_proxy_setup, pattern='^start_proxy_setup$'),
+                CallbackQueryHandler(handle_special_support, pattern='^special_support$'),
+                CallbackQueryHandler(back_to_main_menu, pattern='^back_to_main_menu$'),
             ],
             SELECT_PROXY_OPTION: [
                 CallbackQueryHandler(process_proxy_option, pattern='^(use_proxy|skip_proxy)$'),
@@ -509,7 +594,7 @@ def main():
         ],
         per_user=True,
         per_chat=False,
-        per_message=False,
+        per_message=True,  # إصلاح التحذير
     )
     
     # --- إضافة جميع المعالجات إلى التطبيق ---
@@ -553,11 +638,6 @@ def main():
         logger.info("✅ تم إضافة معالجات الدعم")
     else:
         logger.info("ℹ️ معالجات الدعم غير متاحة")
-    
-    # --- إضافة المعالجات العامة في النهاية ---
-    logger.info("🔧 إضافة المعالجات العامة...")
-    app.add_handler(CallbackQueryHandler(back_to_main_menu, pattern='^back_to_main_menu$'))
-    logger.info("✅ تم إضافة المعالجات العامة")
     
     logger.info("🎉 اكتمل تحميل جميع المعالجات!")
     logger.info("🚀 البوت جاهز ويبدأ التشغيل...")

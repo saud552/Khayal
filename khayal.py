@@ -203,7 +203,7 @@ async def process_proxy_option(update: Update, context: ContextTypes.DEFAULT_TYP
             parse_mode="HTML"
         )
         return ENTER_PROXY_LINKS
-    else:
+    else:  # skip_proxy
         context.user_data['proxies'] = []
         # عرض فئات الحسابات مباشرة بدون بروكسي
         return await choose_session_source(update, context)
@@ -519,6 +519,10 @@ def main():
         app.add_handler(CallbackQueryHandler(back_to_tg_menu, pattern='^back_to_tg_menu$'))
         app.add_handler(CallbackQueryHandler(back_to_proxy_option, pattern='^back_to_proxy_option$'))
         app.add_handler(CallbackQueryHandler(back_to_proxy_setup, pattern='^back_to_proxy_setup$'))
+        # معالجات أزرار البروكسي العامة لضمان الاستجابة
+        app.add_handler(CallbackQueryHandler(process_proxy_option, pattern='^(use_proxy|skip_proxy)$'))
+        # معالجات اختيار الفئات العامة
+        app.add_handler(CallbackQueryHandler(process_category_selection, pattern='^cat_'))
         logger.info("✅ تم إضافة المعالجات الأساسية")
 
         # --- معالج قسم تيليجرام (الإعداد الأولي) ---

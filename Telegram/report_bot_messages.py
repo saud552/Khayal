@@ -20,9 +20,10 @@ from config import API_ID, API_HASH
     SELECT_REASON,
     ENTER_BOT_USERNAME,
     ENTER_DETAILS,
+    ENTER_REPORT_COUNT,
     ENTER_DELAY,
     CONFIRM_START,
-) = range(70, 75)
+) = range(70, 76)
 
 async def start_bot_messages_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """الخطوة 1: اختيار نوع البلاغ"""
@@ -79,6 +80,62 @@ async def process_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["message"] = ""
 
     keyboard = [
+        [InlineKeyboardButton("1 مرة", callback_data="count_1")],
+        [InlineKeyboardButton("2 مرات", callback_data="count_2")],
+        [InlineKeyboardButton("3 مرات", callback_data="count_3")],
+        [InlineKeyboardButton("مخصص", callback_data="count_custom")]
+    ]
+    await update.message.reply_text(
+        "🔄 <b>عدد مرات الإبلاغ</b>\n\n"
+        "اختر عدد مرات الإبلاغ من كل حساب (كل حساب سيقوم بالإبلاغ عن جميع رسائل البوت الموجودة في المحادثة الخاصة):",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return ENTER_REPORT_COUNT
+
+async def process_report_count(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """الخطوة 5: معالجة عدد مرات الإبلاغ"""
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == "count_custom":
+        await query.edit_message_text(
+            "🔢 <b>عدد مخصص</b>\n\n"
+            "أدخل عدد مرات الإبلاغ من كل حساب:",
+            parse_mode="HTML"
+        )
+        return ENTER_REPORT_COUNT
+
+    count = int(query.data.split("_")[1])
+    context.user_data["reports_per_account"] = count
+
+    keyboard = [
+        [InlineKeyboardButton("5 ثواني", callback_data="delay_5")],
+        [InlineKeyboardButton("10 ثواني", callback_data="delay_10")],
+        [InlineKeyboardButton("30 ثواني", callback_data="delay_30")],
+        [InlineKeyboardButton("مخصص", callback_data="delay_custom")]
+    ]
+    await query.edit_message_text(
+        "⏱️ <b>الفاصل الزمني</b>\n\n"
+        "اختر الفاصل الزمني بين عمليات الإبلاغ لكل حساب:",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return ENTER_DELAY
+
+async def custom_report_count(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """معالجة عدد مرات الإبلاغ المخصص"""
+    try:
+        count = int(update.message.text)
+        if count <= 0:
+            await update.message.reply_text("❌ يجب أن يكون العدد أكبر من الصفر.")
+            return ENTER_REPORT_COUNT
+        context.user_data["reports_per_account"] = count
+    except ValueError:
+        await update.message.reply_text("❌ أدخل رقمًا صحيحًا فقط.")
+        return ENTER_REPORT_COUNT
+
+    keyboard = [
         [InlineKeyboardButton("5 ثواني", callback_data="delay_5")],
         [InlineKeyboardButton("10 ثواني", callback_data="delay_10")],
         [InlineKeyboardButton("30 ثواني", callback_data="delay_30")],
@@ -116,6 +173,7 @@ async def process_delay(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📝 <b>ملخص العملية</b>\n\n"
         f"• البوت: {cfg.get('bot_username')}\n"
         f"• عدد الحسابات: {num_accounts}\n"
+        f"• مرات الإبلاغ من كل حساب: {cfg.get('reports_per_account', 1)}\n"
         f"• الفاصل الزمني بين الحسابات: {cfg.get('cycle_delay')} ثانية\n"
         f"• كل حساب سيقوم بالإبلاغ عن جميع رسائل البوت الموجودة في المحادثة الخاصة\n\n"
         f"هل تريد بدء العملية؟"
@@ -150,6 +208,7 @@ async def custom_delay(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📝 <b>ملخص العملية</b>\n\n"
         f"• البوت: {cfg.get('bot_username')}\n"
         f"• عدد الحسابات: {num_accounts}\n"
+        f"• مرات الإبلاغ من كل حساب: {cfg.get('reports_per_account', 1)}\n"
         f"• الفاصل الزمني بين الحسابات: {cfg.get('cycle_delay')} ثانية\n"
         f"• كل حساب سيقوم بالإبلاغ عن جميع رسائل البوت الموجودة في المحادثة الخاصة\n\n"
         f"هل تريد بدء العملية؟"
@@ -177,6 +236,7 @@ async def confirm_and_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = await query.edit_message_text(
         f"⏳ <b>جاري بدء عملية الإبلاغ عن رسائل البوت...</b>\n\n"
         f"• عدد الحسابات: {num_accounts}\n"
+        f"• مرات الإبلاغ من كل حساب: {cfg.get('reports_per_account', 1)}\n"
         f"• كل حساب سيقوم بالإبلاغ عن جميع رسائل البوت الموجودة\n"
         f"• الفاصل الزمني بين الحسابات: {cfg.get('cycle_delay')} ثانية\n\n"
         "سيتم تحديث التقدم هنا...",
@@ -195,6 +255,7 @@ async def run_bot_messages_report(update: Update, context: ContextTypes.DEFAULT_
     bot_username = cfg.get("bot_username")
     cycle_delay = cfg.get("cycle_delay", 5)
     detail_message = cfg.get("message", "")
+    reports_per_account = cfg.get("reports_per_account", 1)
 
     # تتبع التقدم
     cfg.setdefault("lock", asyncio.Lock())
@@ -249,34 +310,43 @@ async def run_bot_messages_report(update: Update, context: ContextTypes.DEFAULT_
                 except:
                     pass
             
-            # طلب خيارات البلاغ أولاً
-            result = await client(functions.messages.ReportRequest(
-                peer=entity,
-                id=bot_messages,
-                option=b'',
-                message=''
-            ))
-
-            chosen_option = None
-            if isinstance(result, types.ReportResultChooseOption):
-                # محاولة مطابقة السبب مع الخيارات المتاحة
-                for opt in result.options:
-                    if reason_obj.__class__.__name__.lower().find(opt.text.lower()) != -1 or reason_obj.__class__.__name__.lower() == opt.text.lower():
-                        chosen_option = opt.option
-                        break
-                if not chosen_option and result.options:
-                    chosen_option = result.options[0].option
-
-                # إرسال البلاغ مع الخيار المختار
-                await client(functions.messages.ReportRequest(
+            # تنفيذ الإبلاغ بعدد المرات المطلوب
+            for rep in range(reports_per_account):
+                if not context.user_data.get("active", True):
+                    break
+                    
+                # طلب خيارات البلاغ أولاً
+                result = await client(functions.messages.ReportRequest(
                     peer=entity,
                     id=bot_messages,
-                    option=chosen_option or b'',
-                    message=detail_message
+                    option=b'',
+                    message=''
                 ))
+
+                chosen_option = None
+                if isinstance(result, types.ReportResultChooseOption):
+                    # محاولة مطابقة السبب مع الخيارات المتاحة
+                    for opt in result.options:
+                        if reason_obj.__class__.__name__.lower().find(opt.text.lower()) != -1 or reason_obj.__class__.__name__.lower() == opt.text.lower():
+                            chosen_option = opt.option
+                            break
+                    if not chosen_option and result.options:
+                        chosen_option = result.options[0].option
+
+                    # إرسال البلاغ مع الخيار المختار
+                    await client(functions.messages.ReportRequest(
+                        peer=entity,
+                        id=bot_messages,
+                        option=chosen_option or b'',
+                        message=detail_message
+                    ))
                 
-                async with cfg["lock"]:
-                    cfg["progress_success"] += 1
+                # تأخير بين التكرارات (إلا إذا كان آخر تكرار)
+                if rep < reports_per_account - 1:
+                    await asyncio.sleep(2)  # تأخير 2 ثانية بين التكرارات
+            
+            async with cfg["lock"]:
+                cfg["progress_success"] += 1
                     
         except Exception as e:
             async with cfg["lock"]:
@@ -352,6 +422,10 @@ bot_messages_report_conv = ConversationHandler(
         SELECT_REASON: [CallbackQueryHandler(select_reason, pattern='^reason_')],
         ENTER_BOT_USERNAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_bot_username)],
         ENTER_DETAILS: [MessageHandler(filters.TEXT | filters.COMMAND, process_details)],
+        ENTER_REPORT_COUNT: [
+            CallbackQueryHandler(process_report_count, pattern='^count_'),
+            MessageHandler(filters.TEXT & ~filters.COMMAND, custom_report_count)
+        ],
         ENTER_DELAY: [
             CallbackQueryHandler(process_delay, pattern='^delay_'),
             MessageHandler(filters.TEXT & ~filters.COMMAND, custom_delay)

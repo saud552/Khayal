@@ -74,7 +74,7 @@ from Telegram.common_improved import (
     Socks5ProxyChecker,
     VerifiedReporter
 )
-from config_enhanced import enhanced_config
+from config import enhanced_config
 
 # ===================================================================
 #  إعداد التسجيل

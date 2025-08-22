@@ -68,7 +68,7 @@ class EnhancedConfig:
     test_mode: bool = False  # وضع اختبار بدون إرسال بلاغات حقيقية
     api_id: int = int(os.getenv('TG_API_ID', '26924046'))
     api_hash: str = os.getenv('TG_API_HASH', '4c6ef4cee5e129b7a674de156e2bcc15')
-    bot_token: str = os.getenv('BOT_TOKEN', '7618405088:AAEikRuG-UXaLYqcrqGjgxf5k4V23U9kcAA')
+    bot_token: str = os.getenv('BOT_TOKEN', '7557280783:AAF44S35fdkcURM4j4Rp5-OOkASZ3_uCSR4')
     
     @classmethod
     def create_default(cls) -> 'EnhancedConfig':

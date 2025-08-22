@@ -699,6 +699,7 @@ class VerifiedReporter:
                     
                 except Exception as e:
                     # تم إزالة السجل لتوفير الذاكرة
+                    pass
             
             return {
                 "success": len(report_results) > 0,
@@ -878,6 +879,7 @@ async def run_enhanced_report_process(update: Update, context: ContextTypes.DEFA
                     
                     for proxy in active_proxies:
                         # تم إزالة السجل لتوفير الذاكرة
+                        pass
                     
                     await asyncio.sleep(2)
                 else:
